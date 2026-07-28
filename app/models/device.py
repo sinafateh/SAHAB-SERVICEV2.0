@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSON
@@ -31,3 +31,12 @@ class Device(Base):
     
     customer_id = Column(Integer, ForeignKey("customers.id"))
     customer = relationship("Customer", backref="devices")
+    
+    # ✅ اضافه کردن ایندکس‌های ترکیبی برای بهبود سرعت جستجو
+    __table_args__ = (
+        Index('ix_devices_part_number', 'part_number'),
+        Index('ix_devices_serial_number', 'serial_number', unique=True),
+        Index('ix_devices_brand_model', 'brand', 'model'),
+        Index('ix_devices_brand', 'brand'),
+        Index('ix_devices_model', 'model'),
+    )

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Index
 from sqlalchemy.sql import func
 from app.models.base import Base
 
@@ -16,3 +16,11 @@ class Customer(Base):
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+    
+    # ✅ اضافه کردن ایندکس‌ها برای بهبود سرعت جستجو
+    __table_args__ = (
+        Index('ix_customers_phone', 'phone'),
+        Index('ix_customers_name', 'name'),
+        Index('ix_customers_email', 'email'),
+        Index('ix_customers_company', 'company'),
+    )

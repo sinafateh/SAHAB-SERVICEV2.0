@@ -14,6 +14,8 @@ class StatusHistory(Base):
     operator_name = Column(String(100), nullable=True)
     changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     changed_at = Column(DateTime, server_default=func.now())
-    repair_order_id = Column(Integer, ForeignKey("repair_orders.id"), nullable=False)
+    
+    # ✅ اضافه کردن Cascade Delete
+    repair_order_id = Column(Integer, ForeignKey("repair_orders.id", ondelete="CASCADE"), nullable=False)
     
     repair_order = relationship("RepairOrder", backref="status_histories")

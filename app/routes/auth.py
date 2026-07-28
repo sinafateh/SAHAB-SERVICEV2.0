@@ -2,49 +2,63 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 
 from app.database import get_db
 from app.models.user import User
 from app.auth import (
     verify_password, get_password_hash, create_access_token,
-    get_current_user, get_current_active_user,
+    get_current_user, get_current_active_user, get_current_admin_user,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
+from app.config import settings
+import logging
 
+logger = logging.getLogger(__name__)
+
+# ============================================
+# ایجاد Router
+# ============================================
 router = APIRouter(prefix="/auth", tags=["احراز هویت"])
 
 # ============================================
-# مدل‌های ورودی/خروجی
+# مدل‌های Pydantic
 # ============================================
+
 class TokenResponse(BaseModel):
+    """پاسخ توکن"""
     access_token: str
-    token_type: str
+    token_type: str = "bearer"
     username: str
     full_name: str
     role: str
+    expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # تبدیل به ثانیه
 
 class UserRegister(BaseModel):
-    username: str
-    password: str
-    full_name: str
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    role: str = "VIEWER"
+    """ثبت نام کاربر جدید"""
+    username: str = Field(..., min_length=3, max_length=50, description="نام کاربری")
+    password: str = Field(..., min_length=6, max_length=100, description="رمز عبور")
+    full_name: str = Field(..., min_length=2, max_length=100, description="نام کامل")
+    email: Optional[EmailStr] = Field(None, description="ایمیل")
+    phone: Optional[str] = Field(None, max_length=20, description="شماره تماس")
+    role: str = Field("VIEWER", description="نقش کاربر")
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
+    """بروزرسانی اطلاعات کاربر"""
+    full_name: Optional[str] = Field(None, max_length=100)
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
+    phone: Optional[str] = Field(None, max_length=20)
     role: Optional[str] = None
     is_active: Optional[bool] = None
 
 class ChangePassword(BaseModel):
-    current_password: str
-    new_password: str
+    """تغییر رمز عبور"""
+    current_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=6, max_length=100)
 
 class UserResponse(BaseModel):
+    """پاسخ اطلاعات کاربر"""
     id: int
     username: str
     full_name: str
@@ -54,10 +68,14 @@ class UserResponse(BaseModel):
     is_active: bool
     last_login: Optional[datetime]
     created_at: datetime
+    updated_at: Optional[datetime]
     
     class Config:
         from_attributes = True
 
+# ============================================
+# لیست نقش‌های معتبر
+# ============================================
 VALID_ROLES = ["ADMIN", "RECEPTION", "CUSTOMER_RELATIONS", "TECHNICAL", "VIEWER"]
 
 # ============================================
@@ -68,35 +86,57 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+    """
+    ورود کاربر و دریافت توکن JWT
+    """
+    logger.info(f"تلاش برای ورود: {form_data.username}")
+    
+    # جستجوی کاربر
     user = db.query(User).filter(User.username == form_data.username).first()
+    
     if not user:
+        logger.warning(f"کاربر یافت نشد: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
+            detail="نام کاربری یا رمز عبور اشتباه است",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # بررسی رمز عبور
     if not verify_password(form_data.password, user.password_hash):
+        logger.warning(f"رمز عبور اشتباه برای کاربر: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
+            detail="نام کاربری یا رمز عبور اشتباه است",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # بررسی فعال بودن کاربر
+    if not user.is_active:
+        logger.warning(f"کاربر غیرفعال: {form_data.username}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="حساب کاربری شما غیرفعال است"
+        )
+    
+    # بروزرسانی زمان آخرین ورود
     user.last_login = datetime.now()
     db.commit()
     
+    # ایجاد توکن
     access_token = create_access_token(
         data={"sub": user.username, "role": user.role}
     )
     
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "username": user.username,
-        "full_name": user.full_name,
-        "role": user.role
-    }
+    logger.info(f"✅ ورود موفق: {user.username}")
+    
+    return TokenResponse(
+        access_token=access_token,
+        username=user.username,
+        full_name=user.full_name,
+        role=user.role,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
 
 # ============================================
 # 2. ثبت نام کاربر جدید (فقط مدیران)
@@ -105,36 +145,41 @@ def login(
 def register(
     user_data: UserRegister,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can register new users"
-        )
+    """
+    ثبت نام کاربر جدید - فقط ادمین
+    """
+    logger.info(f"ثبت نام کاربر جدید توسط: {current_user.username}")
     
+    # بررسی وجود نام کاربری
     existing = db.query(User).filter(User.username == user_data.username).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists"
+            detail="این نام کاربری قبلاً ثبت شده است"
         )
     
+    # بررسی وجود ایمیل
     if user_data.email:
         existing = db.query(User).filter(User.email == user_data.email).first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already exists"
+                detail="این ایمیل قبلاً ثبت شده است"
             )
     
+    # بررسی نقش معتبر
     if user_data.role not in VALID_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role. Valid roles: {', '.join(VALID_ROLES)}"
+            detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(VALID_ROLES)}"
         )
     
+    # هش کردن رمز عبور
     hashed_password = get_password_hash(user_data.password)
+    
+    # ایجاد کاربر جدید
     new_user = User(
         username=user_data.username,
         password_hash=hashed_password,
@@ -144,19 +189,25 @@ def register(
         role=user_data.role,
         is_active=True
     )
+    
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     
+    logger.info(f"✅ کاربر جدید ثبت شد: {new_user.username}")
+    
     return new_user
 
 # ============================================
-# 3. دریافت اطلاعات کاربر فعلی
+# 3. دریافت اطلاعات کاربر جاری
 # ============================================
 @router.get("/me", response_model=UserResponse)
 def get_me(
     current_user: User = Depends(get_current_active_user)
 ):
+    """
+    دریافت اطلاعات کاربر جاری
+    """
     return current_user
 
 # ============================================
@@ -168,16 +219,23 @@ def change_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """
+    تغییر رمز عبور کاربر جاری
+    """
+    # بررسی رمز فعلی
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect"
+            detail="رمز عبور فعلی اشتباه است"
         )
     
+    # بروزرسانی رمز جدید
     current_user.password_hash = get_password_hash(data.new_password)
     db.commit()
     
-    return {"message": "Password changed successfully"}
+    logger.info(f"✅ رمز عبور کاربر {current_user.username} تغییر کرد")
+    
+    return {"message": "رمز عبور با موفقیت تغییر کرد"}
 
 # ============================================
 # 5. لیست کاربران (فقط مدیران)
@@ -185,15 +243,12 @@ def change_password(
 @router.get("/users", response_model=List[UserResponse])
 def get_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can view users list"
-        )
-    
-    users = db.query(User).all()
+    """
+    دریافت لیست همه کاربران - فقط ادمین
+    """
+    users = db.query(User).order_by(User.id).all()
     return users
 
 # ============================================
@@ -204,27 +259,26 @@ def update_user(
     user_id: int,
     user_data: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can update users"
-        )
-    
+    """
+    بروزرسانی اطلاعات کاربر - فقط ادمین
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="کاربر یافت نشد"
         )
     
+    # جلوگیری از غیرفعال کردن خود
     if user.id == current_user.id and user_data.is_active is False:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot deactivate yourself"
+            detail="نمی‌توانید خودتان را غیرفعال کنید"
         )
     
+    # بروزرسانی فیلدها
     if user_data.full_name is not None:
         user.full_name = user_data.full_name
     if user_data.email is not None:
@@ -235,7 +289,7 @@ def update_user(
         if user_data.role not in VALID_ROLES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid role. Valid roles: {', '.join(VALID_ROLES)}"
+                detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(VALID_ROLES)}"
             )
         user.role = user_data.role
     if user_data.is_active is not None:
@@ -243,6 +297,9 @@ def update_user(
     
     db.commit()
     db.refresh(user)
+    
+    logger.info(f"✅ کاربر {user.username} بروزرسانی شد توسط {current_user.username}")
+    
     return user
 
 # ============================================
@@ -252,35 +309,58 @@ def update_user(
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if current_user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can delete users"
-        )
-    
+    """
+    حذف کاربر - فقط ادمین
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="کاربر یافت نشد"
         )
     
+    # جلوگیری از حذف خود
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete yourself"
+            detail="نمی‌توانید خودتان را حذف کنید"
         )
     
     db.delete(user)
     db.commit()
     
-    return {"message": "User deleted successfully"}
+    logger.info(f"✅ کاربر {user.username} حذف شد توسط {current_user.username}")
+    
+    return {"message": "کاربر با موفقیت حذف شد"}
 
 # ============================================
 # 8. خروج از سیستم
 # ============================================
 @router.post("/logout")
 def logout():
-    return {"message": "Logged out successfully"}
+    """
+    خروج از سیستم (سمت کلاینت توکن را حذف می‌کند)
+    """
+    return {"message": "با موفقیت خارج شدید"}
+
+# ============================================
+# 9. بررسی اعتبار توکن
+# ============================================
+@router.get("/verify")
+def verify_token(
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    بررسی اعتبار توکن جاری
+    """
+    return {
+        "valid": True,
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "full_name": current_user.full_name,
+            "role": current_user.role
+        }
+    }

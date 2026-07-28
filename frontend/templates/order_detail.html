@@ -36,11 +36,28 @@
         </div>
     </div>
 
+    <!-- ✅ ترتیب مهم -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="/static/js/app.js"></script>
     <script>
-        // ✅ دریافت orderId از URL
-        const pathParts = window.location.pathname.split('/');
-        const orderId = parseInt(pathParts[pathParts.length - 1]);
+        // ✅ دریافت orderId از URL - فقط یک بار تعریف شود
+        var pathParts = window.location.pathname.split('/');
+        var orderId = parseInt(pathParts[pathParts.length - 1]);
+        
+        // بررسی اینکه orderId عدد معتبری است
+        if (isNaN(orderId) || orderId <= 0) {
+            document.getElementById('order-detail').innerHTML = `
+                <div class="alert alert-danger">
+                    <h4><i class="fas fa-exclamation-triangle"></i> شناسه نامعتبر</h4>
+                    <p>شناسه پرونده وارد شده معتبر نیست.</p>
+                    <a href="/orders" class="btn btn-primary mt-2">
+                        <i class="fas fa-arrow-right"></i> بازگشت به لیست
+                    </a>
+                </div>
+            `;
+        }
+        
+        console.log('📄 order_detail لود شد - ID:', orderId);
     </script>
     <script src="/static/js/pages/order_detail.js"></script>
 </body>

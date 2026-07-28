@@ -81,9 +81,12 @@
                         </div>
                     </div>
 
-                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                        <button type="reset" class="btn btn-secondary">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-secondary" onclick="window.location.href='/orders'">
                             <i class="fas fa-times"></i> انصراف
+                        </button>
+                        <button type="button" class="btn btn-info" id="sampleDataBtn">
+                            <i class="fas fa-file-import"></i> نمونه‌سازی
                         </button>
                         <button type="submit" class="btn btn-success">
                             <i class="fas fa-save"></i> ثبت پرونده
@@ -94,7 +97,9 @@
         </div>
     </div>
 
+    <!-- ✅ ترتیب مهم: اول jQuery، سپس app.js، سپس new_order.js -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="/static/js/app.js"></script>
     <script src="/static/js/pages/new_order.js"></script>
 </body>
 </html>
