@@ -1,0 +1,124 @@
+/* ============================================
+   استایل‌های اختصاصی
+   ============================================ */
+
+body {
+    font-family: 'Tahoma', sans-serif;
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+/* کارت‌های آماری */
+.stat-card {
+    border-radius: 15px;
+    transition: transform 0.2s;
+    cursor: pointer;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+}
+
+.stat-card .card-body h2 {
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+/* کارت ورود */
+.login-card {
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    border: none;
+}
+
+.login-card .card-header {
+    border-radius: 20px 20px 0 0;
+}
+
+/* دکمه‌ها */
+.btn {
+    border-radius: 25px;
+}
+
+.btn-login {
+    padding: 12px;
+    border-radius: 25px;
+    font-weight: 600;
+}
+
+.btn-lg {
+    border-radius: 25px;
+    padding: 12px 30px;
+}
+
+/* وضعیت‌ها */
+.status-badge {
+    padding: 10px 20px;
+    border-radius: 25px;
+    font-size: 16px;
+}
+
+.badge {
+    padding: 8px 14px;
+    border-radius: 20px;
+}
+
+/* تاریخچه تغییرات */
+.timeline-item {
+    border-right: 3px solid #0d6efd;
+    padding-right: 20px;
+    margin-bottom: 20px;
+}
+
+.timeline-item:last-child {
+    border-right-color: transparent;
+}
+
+/* کارت‌های فایل ضمیمه */
+.attachment-card {
+    transition: transform 0.2s;
+    cursor: pointer;
+}
+
+.attachment-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+/* جدول‌ها */
+.table-hover tbody tr:hover {
+    background-color: rgba(13, 110, 253, 0.05);
+    cursor: pointer;
+}
+
+/* مودال‌ها */
+.modal-content {
+    border-radius: 15px;
+}
+
+.modal-header {
+    border-radius: 15px 15px 0 0;
+}
+
+/* فوتر */
+.footer {
+    margin-top: auto;
+    border-top: 1px solid #dee2e6;
+}
+
+/* واکنش‌گرایی */
+@media (max-width: 768px) {
+    .stat-card .card-body h2 {
+        font-size: 1.5rem;
+    }
+    
+    .card-body {
+        padding: 1.25rem;
+    }
+}

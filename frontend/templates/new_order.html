@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ثبت پرونده جدید</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-fire-extinguisher"></i>
+                سیستم مدیریت تعمیرات
+            </a>
+            <a href="/" class="btn btn-light btn-sm">بازگشت</a>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        <div class="card shadow-lg border-0">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="fas fa-plus-circle"></i> ثبت پرونده جدید</h4>
+            </div>
+            <div class="card-body p-4">
+                <form id="orderForm">
+                    <h5 class="text-primary"><i class="fas fa-user"></i> اطلاعات مشتری</h5>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label">نام مشتری *</label>
+                            <input type="text" class="form-control" id="customerName" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">شرکت</label>
+                            <input type="text" class="form-control" id="customerCompany">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">شماره تماس *</label>
+                            <input type="tel" class="form-control" id="customerPhone" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ایمیل</label>
+                            <input type="email" class="form-control" id="customerEmail">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">آدرس</label>
+                            <input type="text" class="form-control" id="customerAddress">
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <h5 class="text-primary"><i class="fas fa-microchip"></i> اطلاعات دستگاه</h5>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <label class="form-label">برند *</label>
+                            <input type="text" class="form-control" id="deviceBrand" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">مدل *</label>
+                            <input type="text" class="form-control" id="deviceModel" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">پارت نامبر *</label>
+                            <input type="text" class="form-control" id="devicePartNumber" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">سریال نامبر *</label>
+                            <input type="text" class="form-control" id="deviceSerialNumber" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">نسخه Firmware</label>
+                            <input type="text" class="form-control" id="deviceFirmware">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">شرح مشکل از زبان مشتری *</label>
+                            <textarea class="form-control" id="customerComplaint" rows="3" required></textarea>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <button type="reset" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> انصراف
+                        </button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save"></i> ثبت پرونده
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="/static/js/pages/new_order.js"></script>
+</body>
+</html>

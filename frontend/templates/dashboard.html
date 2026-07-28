@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>داشبورد</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-fire-extinguisher"></i>
+                سیستم مدیریت تعمیرات
+            </a>
+            <a href="/" class="btn btn-light btn-sm">بازگشت</a>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        <h2 class="mb-4"><i class="fas fa-chart-line text-primary"></i> داشبورد مدیریتی</h2>
+        
+        <div class="row g-4 mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card bg-primary text-white shadow">
+                    <div class="card-body">
+                        <h6>کل پرونده‌ها</h6>
+                        <h2 id="total-orders">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-warning text-dark shadow">
+                    <div class="card-body">
+                        <h6>در حال تعمیر</h6>
+                        <h2 id="repairing-orders">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-info text-white shadow">
+                    <div class="card-body">
+                        <h6>منتظر تایید</h6>
+                        <h2 id="waiting-orders">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-success text-white shadow">
+                    <div class="card-body">
+                        <h6>آماده تحویل</h6>
+                        <h2 id="ready-orders">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-clock"></i> آخرین پرونده‌ها</h5>
+                <a href="/orders" class="btn btn-sm btn-outline-primary">مشاهده همه</a>
+            </div>
+            <div class="card-body">
+                <div id="recent-orders" class="text-center text-muted">
+                    <i class="fas fa-spinner fa-spin"></i> در حال بارگذاری...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="/static/js/pages/dashboard.js"></script>
+</body>
+</html>
