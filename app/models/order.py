@@ -50,49 +50,69 @@ class RepairOrder(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     tracking_code = Column(String(20), unique=True, nullable=False)
-    qr_code = Column(Text, nullable=True)
+    qr_code = Column(Text, nullable=True)  # ذخیره مسیر QR Code
     
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.REGISTERED)
     
+    # ============================================
     # اطلاعات پذیرش (Auto)
+    # ============================================
     reception_date = Column(DateTime, server_default=func.now())
-    operator_name = Column(String(100), nullable=True)
+    operator_name = Column(String(100), nullable=True)  # اپراتور پذیرش
     
+    # ============================================
     # اطلاعات مشتری (Customer)
+    # ============================================
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
     
+    # ============================================
     # محل نصب (Site)
+    # ============================================
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
     
-    # اطلاعات پنل (Panel)
-    panel_id = Column(Integer, ForeignKey("panels.id"), nullable=True)
-    
+    # ============================================
     # مسئول ارسال پنل
+    # ============================================
     sender_name = Column(String(100), nullable=True)
     sender_position = Column(String(100), nullable=True)
     sender_phone = Column(String(20), nullable=True)
     sender_landline = Column(String(20), nullable=True)
     
     delivery_method = Column(Enum(DeliveryMethod), nullable=True)
-    courier_company = Column(String(100), nullable=True)
-    courier_tracking = Column(String(100), nullable=True)
+    courier_company = Column(String(100), nullable=True)  # اگر پیک
+    courier_tracking = Column(String(100), nullable=True)  # شماره مرسوله
     
+    # ============================================
+    # اطلاعات پنل (Panel)
+    # ============================================
+    panel_id = Column(Integer, ForeignKey("panels.id"), nullable=True)
+    
+    # ============================================
     # وضعیت ظاهری
-    physical_damages = Column(JSON, default=list)
+    # ============================================
+    physical_damages = Column(JSON, default=list)  # لیست PhysicalDamage
     physical_description = Column(Text, nullable=True)
     
+    # ============================================
     # متعلقات
-    accessories = Column(JSON, default=list)
+    # ============================================
+    accessories = Column(JSON, default=list)  # لیست Accessory
     accessories_description = Column(Text, nullable=True)
     
+    # ============================================
     # شرح مشتری
+    # ============================================
     customer_complaint = Column(Text, nullable=True)
     
+    # ============================================
     # یادداشت‌ها
+    # ============================================
     notes = Column(Text, nullable=True)
     priority = Column(Integer, default=0)
     
+    # ============================================
     # تاریخ‌های کلیدی
+    # ============================================
     technical_review_date = Column(DateTime, nullable=True)
     diagnosis_date = Column(DateTime, nullable=True)
     repair_start_date = Column(DateTime, nullable=True)
@@ -103,8 +123,7 @@ class RepairOrder(Base):
     updated_at = Column(DateTime, onupdate=func.now())
     
     # ============================================
-    # روابط (با نام‌های یکتا)
+    # روابط
     # ============================================
     customer = relationship("Customer", backref="repair_orders")
-    site = relationship("Site", backref="repair_orders")
-    panel = relationship("Panel", backref="panel_repair_orders")  # ✅ نام یکتا
+    panel = relationship("Panel", backref="repair_orders")

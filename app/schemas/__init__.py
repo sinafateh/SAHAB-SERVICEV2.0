@@ -2,16 +2,18 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
-
+from pydantic import field_validator
 # ============================================
 # مدل‌های مشتری (Customer)
 # ============================================
 class CustomerBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="نام مشتری")
+    last_name: Optional[str] = Field(None, max_length=100, description="نام خانوادگی")
     company: Optional[str] = Field(None, max_length=100, description="شرکت")
     phone: str = Field(..., min_length=1, max_length=20, description="شماره تماس")
     phone_alternative: Optional[str] = Field(None, max_length=20, description="شماره تماس جایگزین")
     email: Optional[EmailStr] = Field(None, description="ایمیل")
+    website: Optional[str] = Field(None, max_length=255, description="وبسایت")
     address: Optional[str] = Field(None, max_length=500, description="آدرس")
 
 class CustomerCreate(CustomerBase):
@@ -27,7 +29,7 @@ class CustomerResponse(CustomerBase):
         from_attributes = True
 
 # ============================================
-# مدل‌های دستگاه (Device)
+# مدل‌های دستگاه (Device) - برای سازگاری با کدهای قدیمی
 # ============================================
 class PhysicalCondition(str, Enum):
     HEALTHY = "سالم"
@@ -93,4 +95,22 @@ class RepairOrderResponse(RepairOrderBase):
     updated_at: Optional[datetime]
     
     class Config:
-        from_attributes = True
+        from_attributes = True      
+class CustomerBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="نام مشتری")
+    last_name: Optional[str] = Field(None, max_length=100, description="نام خانوادگی")
+    company: Optional[str] = Field(None, max_length=100, description="شرکت")
+    phone: str = Field(..., min_length=10, max_length=20, description="شماره تماس")
+    phone_alternative: Optional[str] = Field(None, max_length=20, description="شماره تماس جایگزین")
+    email: Optional[EmailStr] = Field(None, description="ایمیل")
+    website: Optional[str] = Field(None, max_length=255, description="وبسایت")
+    address: Optional[str] = Field(None, max_length=500, description="آدرس")
+    
+    # ✅ اعتبارسنجی شماره تماس
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v):
+        import re
+        if not re.match(r'^[0-9]{10,15}$', v):
+            raise ValueError('شماره تماس باید بین ۱۰ تا ۱۵ رقم باشد')
+        return v        

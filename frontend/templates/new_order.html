@@ -3,11 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ثبت پرونده جدید</title>
+    <title>ثبت پرونده جدید - سیستم مدیریت تعمیرات</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        .step-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            position: relative;
+        }
+        .step-indicator::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #dee2e6;
+            z-index: 0;
+        }
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 1;
+            cursor: pointer;
+        }
+        .step .circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #dee2e6;
+            color: #6c757d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .step.active .circle {
+            background: #0d6efd;
+            color: white;
+        }
+        .step.completed .circle {
+            background: #198754;
+            color: white;
+        }
+        .step .label {
+            font-size: 12px;
+            margin-top: 5px;
+            color: #6c757d;
+        }
+        .step.active .label {
+            color: #0d6efd;
+            font-weight: bold;
+        }
+        .step.completed .label {
+            color: #198754;
+        }
+        .form-section {
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+        .form-section.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .board-item {
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
+            position: relative;
+        }
+        .board-item .remove-board {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+        }
+        .damage-check {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+        }
+        .accessory-check {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+        }
+        .photo-preview {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 2px solid #dee2e6;
+            margin: 5px;
+        }
+        .photo-gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .customer-result {
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .customer-result:hover {
+            background: #f8f9fa;
+            border-color: #0d6efd;
+        }
+        .customer-result.selected {
+            background: #e7f1ff;
+            border-color: #0d6efd;
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
@@ -26,80 +144,702 @@
                 <h4 class="mb-0"><i class="fas fa-plus-circle"></i> ثبت پرونده جدید</h4>
             </div>
             <div class="card-body p-4">
-                <form id="orderForm">
-                    <h5 class="text-primary"><i class="fas fa-user"></i> اطلاعات مشتری</h5>
-                    <div class="row g-3 mb-4">
-                        <div class="col-md-6">
-                            <label class="form-label">نام مشتری *</label>
-                            <input type="text" class="form-control" id="customerName" required>
+
+                <!-- ============================================ -->
+                <!-- Step Indicator -->
+                <!-- ============================================ -->
+                <div class="step-indicator" id="stepIndicator">
+                    <div class="step active" data-step="1">
+                        <div class="circle">1</div>
+                        <div class="label">پذیرش</div>
+                    </div>
+                    <div class="step" data-step="2">
+                        <div class="circle">2</div>
+                        <div class="label">مشتری</div>
+                    </div>
+                    <div class="step" data-step="3">
+                        <div class="circle">3</div>
+                        <div class="label">محل نصب</div>
+                    </div>
+                    <div class="step" data-step="4">
+                        <div class="circle">4</div>
+                        <div class="label">ارسال پنل</div>
+                    </div>
+                    <div class="step" data-step="5">
+                        <div class="circle">5</div>
+                        <div class="label">پنل</div>
+                    </div>
+                    <div class="step" data-step="6">
+                        <div class="circle">6</div>
+                        <div class="label">بردها</div>
+                    </div>
+                    <div class="step" data-step="7">
+                        <div class="circle">7</div>
+                        <div class="label">وضعیت ظاهری</div>
+                    </div>
+                    <div class="step" data-step="8">
+                        <div class="circle">8</div>
+                        <div class="label">متعلقات</div>
+                    </div>
+                    <div class="step" data-step="9">
+                        <div class="circle">9</div>
+                        <div class="label">شرح مشتری</div>
+                    </div>
+                    <div class="step" data-step="10">
+                        <div class="circle">10</div>
+                        <div class="label">ثبت</div>
+                    </div>
+                </div>
+
+                <!-- ============================================ -->
+                <!-- Form Sections -->
+                <!-- ============================================ -->
+                <form id="orderForm" novalidate>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 1: اطلاعات پذیرش (Auto) -->
+                    <!-- ============================================ -->
+                    <div class="form-section active" data-section="1">
+                        <h5 class="text-primary"><i class="fas fa-clipboard-check"></i> اطلاعات پذیرش</h5>
+                        <hr>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">شماره پرونده</label>
+                                <input type="text" class="form-control" id="orderNumber" disabled value="خودکار">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">QR Code</label>
+                                <input type="text" class="form-control" id="qrCode" disabled value="خودکار">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">تاریخ و ساعت پذیرش</label>
+                                <input type="text" class="form-control" id="receptionDate" disabled>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">اپراتور پذیرش</label>
+                                <input type="text" class="form-control" id="operatorName" disabled>
+                            </div>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label">شرکت</label>
-                            <input type="text" class="form-control" id="customerCompany">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">شماره تماس *</label>
-                            <input type="tel" class="form-control" id="customerPhone" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">ایمیل</label>
-                            <input type="email" class="form-control" id="customerEmail">
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">آدرس</label>
-                            <input type="text" class="form-control" id="customerAddress">
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()" disabled>
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
                         </div>
                     </div>
 
-                    <hr>
+                    <!-- ============================================ -->
+                    <!-- بخش 2: مشتری (جستجو/ثبت) -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="2">
+                        <h5 class="text-primary"><i class="fas fa-user"></i> اطلاعات مشتری</h5>
+                        <hr>
 
-                    <h5 class="text-primary"><i class="fas fa-microchip"></i> اطلاعات دستگاه</h5>
-                    <div class="row g-3 mb-4">
-                        <div class="col-md-4">
-                            <label class="form-label">برند *</label>
-                            <input type="text" class="form-control" id="deviceBrand" required>
+                        <!-- جستجو -->
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <input type="text" class="form-control" id="customerSearch" placeholder="جستجو...">
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="searchType">
+                                    <option value="phone">شماره موبایل</option>
+                                    <option value="company">نام شرکت</option>
+                                    <option value="name">نام شخص</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="button" class="btn btn-primary w-100" onclick="searchCustomer()">
+                                    <i class="fas fa-search"></i> جستجو
+                                </button>
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" class="btn btn-success w-100" onclick="showNewCustomer()">
+                                    <i class="fas fa-plus"></i> جدید
+                                </button>
+                            </div>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label">مدل *</label>
-                            <input type="text" class="form-control" id="deviceModel" required>
+
+                        <!-- نتایج جستجو -->
+                        <div id="searchResults"></div>
+
+                        <!-- فرم ثبت مشتری جدید -->
+                        <div id="newCustomerForm" style="display:none;">
+                            <div class="card bg-light p-3">
+                                <h6 class="text-primary">ثبت مشتری جدید</h6>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">نوع مشتری</label>
+                                        <select class="form-select" id="customerType">
+                                            <option value="person">شخص</option>
+                                            <option value="organization">سازمان</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">نام</label>
+                                        <input type="text" class="form-control" id="customerName">
+                                    </div>
+                                    <div class="col-md-6" id="lastNameField">
+                                        <label class="form-label">نام خانوادگی</label>
+                                        <input type="text" class="form-control" id="customerLastName">
+                                    </div>
+                                    <div class="col-md-6" id="companyField" style="display:none;">
+                                        <label class="form-label">نام شرکت</label>
+                                        <input type="text" class="form-control" id="customerCompany">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">موبایل</label>
+                                        <input type="tel" class="form-control" id="customerMobile">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">تلفن</label>
+                                        <input type="tel" class="form-control" id="customerPhone">
+                                    </div>
+                                    <div class="col-md-6" id="websiteField" style="display:none;">
+                                        <label class="form-label">وبسایت</label>
+                                        <input type="url" class="form-control" id="customerWebsite">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">ایمیل</label>
+                                        <input type="email" class="form-control" id="customerEmail">
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="button" class="btn btn-success" onclick="saveCustomer()">
+                                            <i class="fas fa-save"></i> ذخیره مشتری
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" onclick="cancelNewCustomer()">
+                                            انصراف
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label">پارت نامبر *</label>
-                            <input type="text" class="form-control" id="devicePartNumber" required>
+
+                        <!-- مشتری انتخاب شده -->
+                        <div id="selectedCustomer" style="display:none;">
+                            <div class="alert alert-success">
+                                <h6><i class="fas fa-check-circle"></i> مشتری انتخاب شد</h6>
+                                <p id="selectedCustomerInfo"></p>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearCustomer()">
+                                    تغییر مشتری
+                                </button>
+                            </div>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label">سریال نامبر *</label>
-                            <input type="text" class="form-control" id="deviceSerialNumber" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">نسخه Firmware</label>
-                            <input type="text" class="form-control" id="deviceFirmware">
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">شرح مشکل از زبان مشتری *</label>
-                            <textarea class="form-control" id="customerComplaint" rows="3" required></textarea>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
                         </div>
                     </div>
 
-                    <div class="d-flex gap-2 flex-wrap">
-                        <button type="button" class="btn btn-secondary" onclick="window.location.href='/orders'">
-                            <i class="fas fa-times"></i> انصراف
-                        </button>
-                        <button type="button" class="btn btn-info" id="sampleDataBtn">
-                            <i class="fas fa-file-import"></i> نمونه‌سازی
-                        </button>
-                        <button type="submit" class="btn btn-success">
-                            <i class="fas fa-save"></i> ثبت پرونده
-                        </button>
+                    <!-- ============================================ -->
+                    <!-- بخش 3: محل نصب (Site) -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="3">
+                        <h5 class="text-primary"><i class="fas fa-map-marker-alt"></i> محل نصب</h5>
+                        <hr>
+
+                        <div id="siteSection">
+                            <!-- لیست سایت‌های موجود -->
+                            <div id="siteList"></div>
+
+                            <!-- فرم ثبت سایت جدید -->
+                            <div id="newSiteForm" style="display:none;">
+                                <div class="card bg-light p-3">
+                                    <h6 class="text-primary">ثبت محل نصب جدید</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">نام محل</label>
+                                            <input type="text" class="form-control" id="siteName">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">نوع محل</label>
+                                            <select class="form-select" id="siteType">
+                                                <option value="RESIDENTIAL">مسکونی</option>
+                                                <option value="OFFICE">اداری</option>
+                                                <option value="COMMERCIAL">تجاری</option>
+                                                <option value="INDUSTRIAL">صنعتی</option>
+                                                <option value="HOSPITAL">بیمارستان</option>
+                                                <option value="HOTEL">هتل</option>
+                                                <option value="FACTORY">کارخانه</option>
+                                                <option value="EDUCATIONAL">آموزشی</option>
+                                                <option value="WAREHOUSE">انبار</option>
+                                                <option value="OTHER">سایر</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label">آدرس</label>
+                                            <textarea class="form-control" id="siteAddress" rows="2"></textarea>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">لوکیشن (مختصات)</label>
+                                            <input type="text" class="form-control" id="siteLocation">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">توضیحات</label>
+                                            <input type="text" class="form-control" id="siteDescription">
+                                        </div>
+                                    </div>
+                                    <div id="siteResidentialFields" style="display:none;">
+                                        <hr>
+                                        <h6 class="text-secondary">اطلاعات ساختمان (مسکونی)</h6>
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label">نام ساختمان</label>
+                                                <input type="text" class="form-control" id="buildingName">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">مدیر ساختمان</label>
+                                                <input type="text" class="form-control" id="buildingManager">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">شماره مدیر</label>
+                                                <input type="tel" class="form-control" id="managerPhone">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">تلفن لابی</label>
+                                                <input type="tel" class="form-control" id="lobbyPhone">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="siteOrganizationFields" style="display:none;">
+                                        <hr>
+                                        <h6 class="text-secondary">اطلاعات سازمانی</h6>
+                                        <div class="row g-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label">نام مسئول</label>
+                                                <input type="text" class="form-control" id="responsibleName">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">سمت</label>
+                                                <input type="text" class="form-control" id="responsiblePosition">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">شماره تماس مستقیم</label>
+                                                <input type="tel" class="form-control" id="responsiblePhone">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3">
+                                        <button type="button" class="btn btn-success" onclick="saveSite()">
+                                            <i class="fas fa-save"></i> ذخیره محل
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" onclick="cancelNewSite()">
+                                            انصراف
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
                     </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 4: مسئول ارسال پنل -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="4">
+                        <h5 class="text-primary"><i class="fas fa-truck"></i> مسئول ارسال پنل</h5>
+                        <hr>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">نام</label>
+                                <input type="text" class="form-control" id="senderName">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">سمت</label>
+                                <select class="form-select" id="senderPosition">
+                                    <option value="">انتخاب کنید...</option>
+                                    <option value="مدیر ساختمان">مدیر ساختمان</option>
+                                    <option value="مسئول تاسیسات">مسئول تاسیسات</option>
+                                    <option value="مسئول ایمنی">مسئول ایمنی</option>
+                                    <option value="تکنسین پیمانکار">تکنسین پیمانکار</option>
+                                    <option value="سایر">سایر</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">موبایل</label>
+                                <input type="tel" class="form-control" id="senderMobile">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">تلفن</label>
+                                <input type="tel" class="form-control" id="senderPhone">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">روش ارسال</label>
+                                <select class="form-select" id="deliveryMethod">
+                                    <option value="">انتخاب کنید...</option>
+                                    <option value="IN_PERSON">حضوری</option>
+                                    <option value="COURIER">پیک</option>
+                                    <option value="TIPAX">تیپاکس</option>
+                                    <option value="BARBARI">باربری</option>
+                                    <option value="POST">پست</option>
+                                    <option value="OTHER">سایر</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6" id="courierFields" style="display:none;">
+                                <label class="form-label">شرکت پیک</label>
+                                <input type="text" class="form-control" id="courierCompany">
+                            </div>
+                            <div class="col-md-6" id="courierTrackingField" style="display:none;">
+                                <label class="form-label">شماره مرسوله</label>
+                                <input type="text" class="form-control" id="courierTracking">
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 5: اطلاعات پنل (جستجو/ثبت) -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="5">
+                        <h5 class="text-primary"><i class="fas fa-microchip"></i> اطلاعات پنل</h5>
+                        <hr>
+
+                        <!-- جستجو -->
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <input type="text" class="form-control" id="panelSearch" placeholder="جستجو...">
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="panelSearchType">
+                                    <option value="serial">سریال نامبر</option>
+                                    <option value="part">پارت نامبر</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="button" class="btn btn-primary w-100" onclick="searchPanel()">
+                                    <i class="fas fa-search"></i> جستجو
+                                </button>
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" class="btn btn-success w-100" onclick="showNewPanel()">
+                                    <i class="fas fa-plus"></i> جدید
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- نتایج جستجو -->
+                        <div id="panelSearchResults"></div>
+
+                        <!-- فرم ثبت پنل جدید -->
+                        <div id="newPanelForm" style="display:none;">
+                            <div class="card bg-light p-3">
+                                <h6 class="text-primary">ثبت پنل جدید</h6>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label">برند *</label>
+                                        <input type="text" class="form-control" id="panelBrand">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">مدل *</label>
+                                        <input type="text" class="form-control" id="panelModel">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">سریال نامبر *</label>
+                                        <input type="text" class="form-control" id="panelSerial">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">پارت نامبر *</label>
+                                        <input type="text" class="form-control" id="panelPartNumber">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Firmware Version</label>
+                                        <input type="text" class="form-control" id="panelFirmware">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Hardware Version</label>
+                                        <input type="text" class="form-control" id="panelHardware">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">تعداد Loop</label>
+                                        <input type="number" class="form-control" id="panelLoops" value="0">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">تعداد Zone</label>
+                                        <input type="number" class="form-control" id="panelZones" value="0">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">سال نصب</label>
+                                        <input type="number" class="form-control" id="panelYear" placeholder="اختیاری">
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="button" class="btn btn-success" onclick="savePanel()">
+                                            <i class="fas fa-save"></i> ذخیره پنل
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" onclick="cancelNewPanel()">
+                                            انصراف
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- پنل انتخاب شده -->
+                        <div id="selectedPanel" style="display:none;">
+                            <div class="alert alert-success">
+                                <h6><i class="fas fa-check-circle"></i> پنل انتخاب شد</h6>
+                                <p id="selectedPanelInfo"></p>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPanel()">
+                                    تغییر پنل
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 6: ساختار بردها (Dynamic) -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="6">
+                        <h5 class="text-primary"><i class="fas fa-layer-group"></i> ساختار بردها</h5>
+                        <hr>
+
+                        <div class="card bg-light p-3 mb-3">
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">نوع برد</label>
+                                    <select class="form-select" id="boardType">
+                                        <option value="MOTHER">Mother Board</option>
+                                        <option value="POWER">Power Board</option>
+                                        <option value="DISPLAY">Display</option>
+                                        <option value="CPU">CPU</option>
+                                        <option value="LOOP">Loop Card</option>
+                                        <option value="NETWORK">Network</option>
+                                        <option value="BATTERY_CHARGER">Battery Charger</option>
+                                        <option value="OTHER">سایر</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Part Number</label>
+                                    <input type="text" class="form-control" id="boardPartNumber">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Serial</label>
+                                    <input type="text" class="form-control" id="boardSerial">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Revision</label>
+                                    <input type="text" class="form-control" id="boardRevision">
+                                </div>
+                                <div class="col-12">
+                                    <button type="button" class="btn btn-success" onclick="addBoard()">
+                                        <i class="fas fa-plus"></i> افزودن برد
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="boardsList"></div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 7: وضعیت ظاهری -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="7">
+                        <h5 class="text-primary"><i class="fas fa-image"></i> وضعیت ظاهری</h5>
+                        <hr>
+
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">چک لیست ایرادات</label>
+                                <div>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="BROKEN"> شکستگی
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="BURN"> سوختگی
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="WATER_DAMAGE"> آب خوردگی
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="CORRODED"> زنگ زدگی
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="IMPACT"> ضربه
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="TAMPERED"> دستکاری
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="MISSING_SCREW"> پیچ مفقود
+                                    </label>
+                                    <label class="damage-check">
+                                        <input type="checkbox" class="damage-checkbox" value="NO_DAMAGE"> بدون ایراد ظاهری
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">توضیحات وضعیت ظاهری</label>
+                                <textarea class="form-control" id="physicalDescription" rows="2"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">گالری عکس</label>
+                                <input type="file" class="form-control" id="damagePhotos" multiple accept="image/*">
+                                <small class="text-muted">می‌توانید چندین عکس انتخاب کنید</small>
+                                <div id="damagePhotoPreview" class="photo-gallery mt-2"></div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 8: متعلقات -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="8">
+                        <h5 class="text-primary"><i class="fas fa-box"></i> متعلقات</h5>
+                        <hr>
+
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">چک لیست متعلقات</label>
+                                <div>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="BATTERY"> باتری
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="CABLE"> کابل
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="FUSE"> فیوز
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="MANUAL"> دفترچه
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="BOX"> جعبه
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="CONNECTOR"> کانکتور
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="LOOP_CARD"> کارت لوپ
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="EXTRA_BOARD"> برد اضافه
+                                    </label>
+                                    <label class="accessory-check">
+                                        <input type="checkbox" class="accessory-checkbox" value="OTHER"> سایر
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">توضیحات متعلقات</label>
+                                <textarea class="form-control" id="accessoriesDescription" rows="2" placeholder="برای موارد خاص..."></textarea>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 9: شرح مشتری -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="9">
+                        <h5 class="text-primary"><i class="fas fa-pen"></i> شرح مشتری</h5>
+                        <hr>
+
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">شرح مشکل از زبان مشتری *</label>
+                                <textarea class="form-control" id="customerComplaint" rows="5" required></textarea>
+                                <small class="text-muted">توضیحات را دقیقاً همانطور که مشتری گفته است وارد کنید</small>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">
+                                بعدی <i class="fas fa-arrow-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ============================================ -->
+                    <!-- بخش 10: ثبت نهایی -->
+                    <!-- ============================================ -->
+                    <div class="form-section" data-section="10">
+                        <h5 class="text-success"><i class="fas fa-check-circle"></i> ثبت نهایی</h5>
+                        <hr>
+
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-info-circle"></i> خلاصه اطلاعات</h6>
+                            <div id="summaryInfo"></div>
+                        </div>
+
+                        <div class="d-flex gap-3">
+                            <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                                <i class="fas fa-arrow-right"></i> قبلی
+                            </button>
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="fas fa-save"></i> ثبت نهایی
+                            </button>
+                        </div>
+                    </div>
+
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- ✅ ترتیب مهم: اول jQuery، سپس app.js، سپس new_order.js -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="/static/js/app.js"></script>
-    <script src="/static/js/pages/new_order.js"></script>
+    <script src="/static/js/pages/new_order_v2.js"></script>
 </body>
 </html>
