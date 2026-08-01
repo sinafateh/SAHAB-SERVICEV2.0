@@ -89,6 +89,7 @@ text
 ## 🛠️ تکنولوژی‌های استفاده شده
 
 ### بک‌اند (Backend)
+
 | تکنولوژی | نسخه | کاربرد |
 |-----------|-------|--------|
 | **Python** | 3.11+ | زبان اصلی |
@@ -101,6 +102,7 @@ text
 | **Docker** | 24+ | کانتینریزیشن |
 
 ### فرانت‌اند (Frontend)
+
 | تکنولوژی | نسخه | کاربرد |
 |-----------|-------|--------|
 | **HTML5** | - | ساختار صفحات |
@@ -112,6 +114,7 @@ text
 | **Font Awesome** | 6.4 | آیکون‌ها |
 
 ### ابزارهای توسعه
+
 | ابزار | کاربرد |
 |--------|--------|
 | **Git** | کنترل نسخه |
@@ -129,6 +132,8 @@ text
 - PostgreSQL 15 یا بالاتر
 - Docker (اختیاری)
 - Git
+
+---
 
 ### روش ۱: نصب با Docker (توصیه شده)
 
@@ -156,29 +161,32 @@ cd SAHAB-SERVICEV2.0
 # 2. ایجاد محیط مجازی
 python -m venv venv
 
-# فعال‌سازی در Windows
+# 3. فعال‌سازی محیط مجازی
+# در Windows:
 venv\Scripts\activate
 
-# فعال‌سازی در Linux/Mac
+# در Linux/Mac:
 source venv/bin/activate
 
-# 3. نصب وابستگی‌ها
+# 4. نصب وابستگی‌ها
 pip install -r requirements.txt
 
-# 4. ایجاد فایل .env
+# 5. ایجاد فایل .env
 cp .env.example .env
 
-# 5. تنظیم دیتابیس در pgAdmin
-# ایجاد دیتابیس با نام SAHAB_Service
+# 6. تنظیم دیتابیس در pgAdmin
+# یک دیتابیس جدید با نام SAHAB_Service ایجاد کنید
 
-# 6. اجرای برنامه
+# 7. اجرای برنامه
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 7. ایجاد کاربر ادمین
+# 8. ایجاد کاربر ادمین
 python create_admin.py
 پیکربندی دیتابیس
+برای ایجاد دیتابیس در pgAdmin، این کوئری را اجرا کنید:
+
 sql
--- ایجاد دیتابیس در pgAdmin
+-- ایجاد دیتابیس
 CREATE DATABASE "SAHAB_Service"
     WITH
     OWNER = postgres
