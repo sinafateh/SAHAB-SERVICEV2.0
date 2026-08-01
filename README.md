@@ -72,8 +72,6 @@
 ↓
 تحویل شده / مختومه بدون تعمیر
 
-text
-
 ### 👥 نقش‌های کاربری
 
 | نقش | دسترسی‌ها |
@@ -134,87 +132,6 @@ text
 - Git
 
 ---
-
-### روش ۱: نصب با Docker (توصیه شده)
-
-```bash
-# 1. کلون کردن مخزن
-git clone https://github.com/sinafateh/SAHAB-SERVICEV2.0.git
-cd SAHAB-SERVICEV2.0
-
-# 2. کپی فایل محیطی
-cp .env.example .env
-
-# 3. تنظیم متغیرهای محیطی در فایل .env
-
-# 4. اجرا با Docker Compose
-docker-compose up -d
-
-# 5. ایجاد کاربر ادمین
-docker-compose exec app python create_admin.py
-روش ۲: نصب دستی
-bash
-# 1. کلون کردن مخزن
-git clone https://github.com/sinafateh/SAHAB-SERVICEV2.0.git
-cd SAHAB-SERVICEV2.0
-
-# 2. ایجاد محیط مجازی
-python -m venv venv
-
-# 3. فعال‌سازی محیط مجازی
-# در Windows:
-venv\Scripts\activate
-
-# در Linux/Mac:
-source venv/bin/activate
-
-# 4. نصب وابستگی‌ها
-pip install -r requirements.txt
-
-# 5. ایجاد فایل .env
-cp .env.example .env
-
-# 6. تنظیم دیتابیس در pgAdmin
-# یک دیتابیس جدید با نام SAHAB_Service ایجاد کنید
-
-# 7. اجرای برنامه
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 8. ایجاد کاربر ادمین
-python create_admin.py
-پیکربندی دیتابیس
-برای ایجاد دیتابیس در pgAdmin، این کوئری را اجرا کنید:
-
-sql
--- ایجاد دیتابیس
-CREATE DATABASE "SAHAB_Service"
-    WITH
-    OWNER = postgres
-    ENCODING = 'UTF8'
-    LC_COLLATE = 'fa-IR'
-    LC_CTYPE = 'fa-IR'
-    TABLESPACE = pg_default
-    CONNECTION LIMIT = -1;
-متغیرهای محیطی (.env)
-env
-# دیتابیس
-DATABASE_URL=postgresql://postgres:your_password@localhost:5432/SAHAB_Service
-
-# امنیت
-JWT_SECRET_KEY=your-super-secret-jwt-key
-SECRET_KEY=my-secret-key
-
-# برنامه
-APP_NAME=سیستم مدیریت تعمیرات سها
-DEBUG=True
-UPLOAD_DIR=./uploads
-
-# JWT
-JWT_ALGORITHM=HS256
-JWT_EXPIRE_MINUTES=10080
-
-# CORS
-CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 📁 ساختار پروژه
 text
 SAHAB-SERVICEV2.0/
@@ -274,12 +191,7 @@ SAHAB-SERVICEV2.0/
 ├── docker-compose.yml
 ├── create_admin.py
 └── README.md
-📖 راهنمای استفاده
-ورود به سیستم
-text
-کاربر پیش‌فرض:
-- نام کاربری: admin
-- رمز عبور: admin123
+
 مسیرهای اصلی
 مسیر	توضیح
 /	صفحه اصلی
@@ -349,35 +261,8 @@ Commit Messages:
 👨‍💻 توسعه‌دهندگان
 نام	نقش	ایمیل
 سینا فاتح	توسعه‌دهنده اصلی	Cnofateh@gmail.com
-📝 لایسنس
-این پروژه تحت لایسنس MIT منتشر شده است. برای اطلاعات بیشتر فایل LICENSE را مشاهده کنید.
 
-text
-MIT License
-
-Copyright (c) 2026 Sina Fateh
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-🙏 قدردانی
-از تمام افرادی که در توسعه این پروژه نقش داشته‌اند، سپاسگزاریم. 🙏
-
-📞 ارتباط با ما
+📞 ارتباط با من
 ایمیل: Cnofateh@gmail.com
 
 گیت‌هاب: github.com/sinafateh
