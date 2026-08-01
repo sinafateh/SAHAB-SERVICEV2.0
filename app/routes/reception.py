@@ -30,16 +30,19 @@ from app.auth import (
     get_current_reception_user
 )
 from app.schemas import PhysicalCondition
-
+from fastapi.responses import HTMLResponse
 # کتابخانه‌های Excel
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import logging
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reception", tags=["پذیرش"])
-
+templates = Jinja2Templates(directory="frontend/templates")
 # ============================================
 # مدل‌های Pydantic برای APIهای جدید
 # ============================================
@@ -167,6 +170,7 @@ def get_status_enum(status_str: str) -> OrderStatus:
     return status_map[status_str]
 
 def format_order_response(order: RepairOrder) -> dict:
+    """فرمت کردن پاسخ پرونده"""
     return {
         "id": order.id,
         "tracking_code": order.tracking_code,
@@ -185,7 +189,7 @@ def format_order_response(order: RepairOrder) -> dict:
         "customer_company": order.customer.company if order.customer else None,
         "customer_phone": order.customer.phone if order.customer else None,
         "customer_address": order.customer.address if order.customer else None,
-        # ✅ تغییر از device به panel
+        # ✅ تغییر: استفاده از panel به جای device
         "device_brand": order.panel.brand if order.panel else None,
         "device_model": order.panel.model if order.panel else None,
         "device_part_number": order.panel.part_number if order.panel else None,
@@ -398,12 +402,12 @@ def get_repair_orders(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    """دریافت لیست پرونده‌ها - عمومی (بدون نیاز به احراز هویت)"""
     try:
         query = db.query(RepairOrder).options(
             joinedload(RepairOrder.customer),
-            # ❌ device حذف شد - از panel استفاده کن
-            joinedload(RepairOrder.panel),
-            joinedload(RepairOrder.site)
+            joinedload(RepairOrder.panel),  # ✅ تغییر از device به panel
+            joinedload(RepairOrder.site)    # ✅ اضافه کردن site
         )
         
         if status:
@@ -427,6 +431,9 @@ def get_repair_orders(
 # --------------------------------------------
 # 6. جستجوی پیشرفته پرونده‌ها
 # --------------------------------------------
+# --------------------------------------------
+# 6. جستجوی پیشرفته پرونده‌ها
+# --------------------------------------------
 @router.get("/repair-orders/search")
 def search_repair_orders(
     q: Optional[str] = None,
@@ -437,8 +444,9 @@ def search_repair_orders(
 ):
     """جستجوی پیشرفته پرونده‌ها - عمومی (بدون نیاز به احراز هویت)"""
     try:
+        # ✅ تغییر: استفاده از Panel به جای Device
         query = db.query(RepairOrder).join(Customer, RepairOrder.customer_id == Customer.id)\
-                                     .join(Device, RepairOrder.device_id == Device.id)
+                                     .join(Panel, RepairOrder.panel_id == Panel.id)
         
         if q:
             q_filter = f"%{q}%"
@@ -446,8 +454,8 @@ def search_repair_orders(
                 (Customer.name.ilike(q_filter)) |
                 (Customer.phone.ilike(q_filter)) |
                 (RepairOrder.tracking_code.ilike(q_filter)) |
-                (Device.serial_number.ilike(q_filter)) |
-                (Device.part_number.ilike(q_filter))
+                (Panel.serial_number.ilike(q_filter)) |
+                (Panel.part_number.ilike(q_filter))
             )
         
         if status:
@@ -480,7 +488,6 @@ def search_repair_orders(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="خطا در جستجوی اطلاعات"
         )
-
 # --------------------------------------------
 # 7. دریافت جزئیات یک پرونده
 # --------------------------------------------
@@ -493,7 +500,8 @@ def get_repair_order(
     try:
         order = db.query(RepairOrder).options(
             joinedload(RepairOrder.customer),
-            joinedload(RepairOrder.device)
+            joinedload(RepairOrder.panel),  # ✅ تغییر از device به panel
+            joinedload(RepairOrder.site)    # ✅ اضافه کردن site
         ).filter(RepairOrder.id == order_id).first()
         
         if not order:
@@ -1039,13 +1047,15 @@ def ping(db: Session = Depends(get_db)):
 # بخش 2: APIهای جدید (برای فرم نسخه ۲)
 # ============================================
 
-# --------------------------------------------
-# 18. جستجوی پیشرفته مشتریان
-# --------------------------------------------
+# ============================================
+# جستجوی پیشرفته مشتریان (برای فرم جدید)
+# ============================================
 @router.get("/customers/search-v2")
 def search_customers_advanced(
     q: Optional[str] = None,
     phone: Optional[str] = None,
+    name: Optional[str] = None,
+    company: Optional[str] = None,
     id: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
@@ -1055,29 +1065,53 @@ def search_customers_advanced(
     try:
         query = db.query(Customer)
         
+        # اگر id داده شده، مشتری رو برگردون
         if id:
             customer = query.filter(Customer.id == id).first()
-            return customer
+            if customer:
+                return customer
+            return None
         
-        if q:
-            query = query.filter(
-                (Customer.name.ilike(f"%{q}%")) |
-                (Customer.company.ilike(f"%{q}%")) |
-                (Customer.phone.ilike(f"%{q}%"))
-            )
-        
+        # ✅ جستجو با شماره موبایل
         if phone:
-            query = query.filter(Customer.phone.ilike(f"%{phone}%"))
+            phone = phone.strip()
+            results = query.filter(Customer.phone.ilike(f"%{phone}%")).limit(20).all()
+            return results
         
-        return query.limit(20).all()
-    
+        # ✅ جستجو با نام شخص
+        if name:
+            name = name.strip()
+            name_filter = f"%{name}%"
+            results = query.filter(
+                (Customer.name.ilike(name_filter)) |
+                (Customer.last_name.ilike(name_filter))
+            ).limit(20).all()
+            return results
+        
+        # ✅ جستجو با نام شرکت
+        if company:
+            company = company.strip()
+            company_filter = f"%{company}%"
+            results = query.filter(Customer.company.ilike(company_filter)).limit(20).all()
+            return results
+        
+        # ✅ جستجو عمومی (در همه فیلدها)
+        if q:
+            q = q.strip()
+            q_filter = f"%{q}%"
+            results = query.filter(
+                (Customer.name.ilike(q_filter)) |
+                (Customer.company.ilike(q_filter)) |
+                (Customer.phone.ilike(q_filter)) |
+                (Customer.email.ilike(q_filter))
+            ).limit(20).all()
+            return results
+        
+        return []
+        
     except Exception as e:
-        logger.error(f"خطا در جستجوی مشتریان: {e}")
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="خطا در جستجوی اطلاعات"
-        )
-
+        print("ERROR in search_customers_advanced:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 # --------------------------------------------
 # 19. دریافت سایت‌های مشتری
 # --------------------------------------------
@@ -1264,61 +1298,295 @@ async def create_repair_order_v2(
     current_user: User = Depends(get_current_reception_user)
 ):
     """
-    ثبت پرونده جدید با تمام اطلاعات (نسخه ۲)
+    ثبت پرونده جدید با تمام اطلاعات (نسخه ۲) - نسخه دیباگ
     """
+    import traceback
+    import json
+    
     try:
-        order_data = json.loads(data)
-        logger.info(f"ثبت پرونده نسخه ۲ توسط: {current_user.username}")
+        # ============================================
+        # مرحله 1: دریافت و parse کردن داده
+        # ============================================
+        logger.info("=" * 60)
+        logger.info("🔍 شروع فرآیند ثبت پرونده نسخه ۲")
+        logger.info(f"👤 کاربر: {current_user.username} (ID: {current_user.id})")
         
-        customer = db.query(Customer).filter(Customer.id == order_data.get('customer_id')).first()
+        order_data = json.loads(data)
+        logger.info(f"✅ داده با موفقیت parse شد: {list(order_data.keys())}")
+        
+        # ============================================
+        # مرحله 2: اعتبارسنجی
+        # ============================================
+        logger.info("🔍 شروع اعتبارسنجی...")
+        
+        # 2.1 بررسی مشتری
+        customer_id = order_data.get('customer_id')
+        logger.info(f"  - customer_id: {customer_id}")
+        if not customer_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="لطفاً مشتری را انتخاب کنید"
+            )
+        
+        customer = db.query(Customer).filter(Customer.id == customer_id).first()
         if not customer:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="مشتری یافت نشد"
+                detail="مشتری انتخاب شده در سیستم وجود ندارد"
+            )
+        logger.info(f"  ✅ مشتری پیدا شد: {customer.name} (ID: {customer.id})")
+        
+        # 2.2 بررسی پنل
+        panel_id = order_data.get('panel_id')
+        logger.info(f"  - panel_id: {panel_id}")
+        if not panel_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="لطفاً پنل را انتخاب کنید"
             )
         
-        panel = db.query(Panel).filter(Panel.id == order_data.get('panel_id')).first()
+        panel = db.query(Panel).filter(Panel.id == panel_id).first()
         if not panel:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="پنل یافت نشد"
+                detail="پنل انتخاب شده در سیستم وجود ندارد"
             )
+        logger.info(f"  ✅ پنل پیدا شد: {panel.brand} {panel.model} (ID: {panel.id})")
         
+        # 2.3 بررسی سایت (اختیاری)
         site_id = order_data.get('site_id')
+        logger.info(f"  - site_id: {site_id}")
         if site_id:
             site = db.query(Site).filter(Site.id == site_id).first()
             if not site:
                 raise HTTPException(
                     status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail="محل نصب یافت نشد"
+                    detail="محل نصب انتخاب شده در سیستم وجود ندارد"
+                )
+            logger.info(f"  ✅ سایت پیدا شد: {site.name} (ID: {site.id})")
+        
+        # 2.4 بررسی شرح مشتری
+        customer_complaint = order_data.get('customer_complaint', '').strip()
+        logger.info(f"  - customer_complaint: {customer_complaint[:50]}...")
+        if not customer_complaint or len(customer_complaint) < 3:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="لطفاً شرح مشکل را وارد کنید (حداقل ۳ کاراکتر)"
+            )
+        logger.info("  ✅ شرح مشتری معتبر است")
+        
+        # ============================================
+        # مرحله 3: ساخت Tracking Code و پرونده
+        # ============================================
+        logger.info("🔍 ساخت پرونده جدید...")
+        
+        tracking_code = f"SR-{datetime.now().strftime('%Y%m')}-{uuid.uuid4().hex[:6].upper()}"
+        logger.info(f"  - tracking_code: {tracking_code}")
+        
+        # ============================================
+        # مرحله 4: آماده‌سازی داده برای INSERT
+        # ============================================
+        repair_order_data = {
+            'tracking_code': tracking_code,
+            'qr_code': None,
+            'status': OrderStatus.REGISTERED,
+            'operator_name': current_user.full_name,
+            'customer_id': customer_id,
+            'site_id': site_id,
+            'panel_id': panel_id,
+            # ✅ device_id را حذف کردیم
+            'sender_name': order_data.get('sender_name'),
+            'sender_position': order_data.get('sender_position'),
+            'sender_phone': order_data.get('sender_phone'),
+            'sender_landline': order_data.get('sender_landline'),
+            'delivery_method': order_data.get('delivery_method'),
+            'courier_company': order_data.get('courier_company'),
+            'courier_tracking': order_data.get('courier_tracking'),
+            'physical_damages': order_data.get('physical_damages', []),
+            'physical_description': order_data.get('physical_description'),
+            'accessories': order_data.get('accessories', []),
+            'accessories_description': order_data.get('accessories_description'),
+            'customer_complaint': customer_complaint,
+            'notes': None,
+            'priority': 0,
+            'technical_review_date': None,
+            'diagnosis_date': None,
+            'repair_start_date': None,
+            'repair_complete_date': None,
+            'final_delivery_date': None,
+            'updated_at': None
+        }
+        
+        logger.info(f"📋 داده‌های آماده برای INSERT: {repair_order_data}")
+        
+        # ============================================
+        # مرحله 5: ایجاد پرونده در دیتابیس
+        # ============================================
+        logger.info("🔍 اجرای INSERT در دیتابیس...")
+        
+        try:
+            repair_order = RepairOrder(**repair_order_data)
+            db.add(repair_order)
+            db.flush()
+            logger.info(f"  ✅ پرونده با ID {repair_order.id} ایجاد شد")
+        except Exception as insert_error:
+            logger.error(f"  ❌ خطا در INSERT: {insert_error}")
+            logger.error(f"  📄 جزییات: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"خطا در ایجاد پرونده: {str(insert_error)}"
+            )
+        
+        # ============================================
+        # مرحله 6: ثبت بردها
+        # ============================================
+        boards_data = order_data.get('boards', [])
+        logger.info(f"🔍 ثبت {len(boards_data)} برد...")
+        
+        for idx, board_data in enumerate(boards_data):
+            try:
+                board = Board(
+                    board_type=board_data.get('type'),
+                    part_number=board_data.get('part_number'),
+                    serial_number=board_data.get('serial_number'),
+                    revision=board_data.get('revision'),
+                    repair_order_id=repair_order.id
+                )
+                db.add(board)
+                logger.info(f"  ✅ برد {idx+1} اضافه شد: {board.part_number}")
+            except Exception as board_error:
+                logger.error(f"  ❌ خطا در ثبت برد {idx+1}: {board_error}")
+                raise HTTPException(
+                    status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"خطا در ثبت برد {idx+1}: {str(board_error)}"
                 )
         
-        tracking_code = generate_tracking_code()
+        # ============================================
+        # مرحله 7: آپلود عکس‌ها
+        # ============================================
+        uploaded_photos = []
+        logger.info(f"🔍 آپلود {len(photos)} عکس...")
         
-        repair_order = RepairOrder(
-            tracking_code=tracking_code,
-            status=OrderStatus.REGISTERED,
-            customer_id=order_data.get('customer_id'),
-            site_id=order_data.get('site_id'),
-            panel_id=order_data.get('panel_id'),
-            sender_name=order_data.get('sender_name'),
-            sender_position=order_data.get('sender_position'),
-            sender_phone=order_data.get('sender_phone'),
-            sender_landline=order_data.get('sender_landline'),
-            delivery_method=order_data.get('delivery_method'),
-            courier_company=order_data.get('courier_company'),
-            courier_tracking=order_data.get('courier_tracking'),
-            physical_damages=order_data.get('physical_damages', []),
-            physical_description=order_data.get('physical_description'),
-            accessories=order_data.get('accessories', []),
-            accessories_description=order_data.get('accessories_description'),
-            customer_complaint=order_data.get('customer_complaint'),
-            operator_name=current_user.full_name,
-            priority=0
+        if photos:
+            upload_dir = os.path.join(settings.upload_dir, "photos", str(repair_order.id))
+            os.makedirs(upload_dir, exist_ok=True)
+            logger.info(f"  📁 پوشه آپلود: {upload_dir}")
+            
+            for idx, photo in enumerate(photos):
+                try:
+                    logger.info(f"  📸 پردازش عکس {idx+1}: {photo.filename}")
+                    file_extension = os.path.splitext(photo.filename)[1]
+                    unique_filename = f"{uuid.uuid4()}{file_extension}"
+                    file_path = os.path.join(upload_dir, unique_filename)
+                    
+                    with open(file_path, "wb") as buffer:
+                        shutil.copyfileobj(photo.file, buffer)
+                    
+                    relative_path = f"/uploads/photos/{repair_order.id}/{unique_filename}"
+                    uploaded_photos.append(relative_path)
+                    
+                    attachment = Attachment(
+                        file_name=photo.filename,
+                        file_path=relative_path,
+                        file_type="photo",
+                        file_size=os.path.getsize(file_path),
+                        mime_type=photo.content_type,
+                        is_physical_damage=True,
+                        repair_order_id=repair_order.id,
+                        uploaded_by=current_user.id
+                    )
+                    db.add(attachment)
+                    logger.info(f"  ✅ عکس {idx+1} آپلود شد: {relative_path}")
+                except Exception as photo_error:
+                    logger.error(f"  ❌ خطا در آپلود عکس {idx+1}: {photo_error}")
+                    # ادامه می‌دهیم حتی اگر یک عکس مشکل داشته باشد
+        
+        # ============================================
+        # مرحله 8: ثبت تاریخچه
+        # ============================================
+        logger.info("🔍 ثبت تاریخچه وضعیت...")
+        try:
+            history = StatusHistory(
+                repair_order_id=repair_order.id,
+                old_status=None,
+                new_status=OrderStatus.REGISTERED,
+                reason="ثبت پرونده جدید",
+                operator_name=current_user.full_name,
+                changed_by=current_user.id
+            )
+            db.add(history)
+            logger.info("  ✅ تاریخچه ثبت شد")
+        except Exception as history_error:
+            logger.error(f"  ❌ خطا در ثبت تاریخچه: {history_error}")
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"خطا در ثبت تاریخچه: {str(history_error)}"
+            )
+        
+        # ============================================
+        # مرحله 9: Commit نهایی
+        # ============================================
+        logger.info("🔍 اجرای COMMIT نهایی...")
+        try:
+            db.commit()
+            db.refresh(repair_order)
+            logger.info(f"  ✅ COMMIT موفق! پرونده {repair_order.tracking_code} ثبت شد")
+        except Exception as commit_error:
+            logger.error(f"  ❌ خطا در COMMIT: {commit_error}")
+            logger.error(f"  📄 جزییات: {traceback.format_exc()}")
+            db.rollback()
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"خطا در ذخیره‌سازی نهایی: {str(commit_error)}"
+            )
+        
+        # ============================================
+        # مرحله 10: بازگشت پاسخ موفق
+        # ============================================
+        logger.info("=" * 60)
+        logger.info(f"✅ پرونده نسخه ۲ با موفقیت ثبت شد: {repair_order.tracking_code}")
+        logger.info("=" * 60)
+        
+        return {
+            "id": repair_order.id,
+            "tracking_code": repair_order.tracking_code,
+            "status": repair_order.status.value,
+            "message": "پرونده با موفقیت ثبت شد",
+            "photos_count": len(uploaded_photos),
+            "boards_count": len(boards_data)
+        }
+    
+    except HTTPException:
+        db.rollback()
+        logger.error(f"❌ خطای HTTP: {traceback.format_exc()}")
+        raise
+    
+    except json.JSONDecodeError as e:
+        db.rollback()
+        logger.error(f"❌ خطا در pars کردن JSON: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=f"اطلاعات ارسالی نامعتبر است: {str(e)}"
+        )
+    
+    except Exception as e:
+        db.rollback()
+        logger.error("=" * 60)
+        logger.error("❌❌❌ خطای پیش‌بینی‌نشده در ثبت پرونده ❌❌❌")
+        logger.error(f"نوع خطا: {type(e).__name__}")
+        logger.error(f"پیام خطا: {str(e)}")
+        logger.error("جزییات کامل:")
+        logger.error(traceback.format_exc())
+        logger.error("=" * 60)
+        
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"خطا در ثبت پرونده: {type(e).__name__} - {str(e)}"
         )
         
-        db.add(repair_order)
-        db.flush()
+        # ============================================
+        # ثبت بردها
+        # ============================================
         
         boards_data = order_data.get('boards', [])
         for board_data in boards_data:
@@ -1331,33 +1599,45 @@ async def create_repair_order_v2(
             )
             db.add(board)
         
+        # ============================================
+        # آپلود عکس‌ها
+        # ============================================
+        
         uploaded_photos = []
         if photos:
             upload_dir = os.path.join(settings.upload_dir, "photos", str(repair_order.id))
             os.makedirs(upload_dir, exist_ok=True)
             
             for photo in photos:
-                file_extension = os.path.splitext(photo.filename)[1]
-                unique_filename = f"{uuid.uuid4()}{file_extension}"
-                file_path = os.path.join(upload_dir, unique_filename)
-                
-                with open(file_path, "wb") as buffer:
-                    shutil.copyfileobj(photo.file, buffer)
-                
-                relative_path = f"/uploads/photos/{repair_order.id}/{unique_filename}"
-                uploaded_photos.append(relative_path)
-                
-                attachment = Attachment(
-                    file_name=photo.filename,
-                    file_path=relative_path,
-                    file_type="photo",
-                    file_size=os.path.getsize(file_path),
-                    mime_type=photo.content_type,
-                    is_physical_damage=True,
-                    repair_order_id=repair_order.id,
-                    uploaded_by=current_user.id
-                )
-                db.add(attachment)
+                try:
+                    file_extension = os.path.splitext(photo.filename)[1]
+                    unique_filename = f"{uuid.uuid4()}{file_extension}"
+                    file_path = os.path.join(upload_dir, unique_filename)
+                    
+                    with open(file_path, "wb") as buffer:
+                        shutil.copyfileobj(photo.file, buffer)
+                    
+                    relative_path = f"/uploads/photos/{repair_order.id}/{unique_filename}"
+                    uploaded_photos.append(relative_path)
+                    
+                    attachment = Attachment(
+                        file_name=photo.filename,
+                        file_path=relative_path,
+                        file_type="photo",
+                        file_size=os.path.getsize(file_path),
+                        mime_type=photo.content_type,
+                        is_physical_damage=True,
+                        repair_order_id=repair_order.id,
+                        uploaded_by=current_user.id
+                    )
+                    db.add(attachment)
+                except Exception as e:
+                    logger.error(f"خطا در آپلود عکس {photo.filename}: {e}")
+                    # ادامه می‌دهیم حتی اگر یک عکس مشکل داشته باشد
+        
+        # ============================================
+        # ثبت تاریخچه وضعیت
+        # ============================================
         
         history = StatusHistory(
             repair_order_id=repair_order.id,
@@ -1368,6 +1648,10 @@ async def create_repair_order_v2(
             changed_by=current_user.id
         )
         db.add(history)
+        
+        # ============================================
+        # Commit نهایی
+        # ============================================
         
         db.commit()
         db.refresh(repair_order)
@@ -1384,68 +1668,289 @@ async def create_repair_order_v2(
         }
     
     except HTTPException:
+        # ✅ خطاهایی که خودمان ایجاد کردیم با پیام قابل فهم
         db.rollback()
         raise
+    
+    except json.JSONDecodeError:
+        db.rollback()
+        logger.error(f"خطا در pars کردن JSON: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="اطلاعات ارسالی نامعتبر است. لطفاً دوباره تلاش کنید."
+        )
+    
     except Exception as e:
         db.rollback()
         logger.error(f"خطا در ثبت پرونده نسخه ۲: {e}")
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"خطا در ثبت پرونده: {str(e)}"
-        )
-@router.post("/customers", response_model=CustomerResponse, status_code=http_status.HTTP_201_CREATED)
-def create_customer(
-    customer: CustomerCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_reception_user)
-):
-    """ثبت مشتری جدید - نیاز به نقش پذیرش یا ادمین"""
-    logger.info(f"ثبت مشتری جدید توسط: {current_user.username}")
-    
-    try:
-        # بررسی تکراری بودن شماره تماس
-        existing = db.query(Customer).filter(Customer.phone == customer.phone).first()
-        if existing:
+        
+        # ✅ تبدیل خطاهای رایج به پیام‌های قابل فهم
+        error_msg = str(e)
+        
+        if "column" in error_msg and "does not exist" in error_msg:
+            # خطای مربوط به ستون‌های دیتابیس
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="خطا در ساختار دیتابیس. لطفاً با پشتیبانی تماس بگیرید."
+            )
+        elif "not-null constraint" in error_msg:
+            # خطای مربوط به فیلدهای اجباری
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="شماره تماس قبلاً ثبت شده است"
+                detail="برخی از اطلاعات ضروری وارد نشده است. لطفاً فرم را کامل کنید."
             )
-        
-        # بررسی تکراری بودن ایمیل (در صورت وجود)
-        if customer.email:
-            existing = db.query(Customer).filter(Customer.email == customer.email).first()
-            if existing:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="ایمیل قبلاً ثبت شده است"
-                )
-        
-        db_customer = Customer(**customer.model_dump())
-        db.add(db_customer)
-        db.commit()
-        db.refresh(db_customer)
-        logger.info(f"✅ مشتری جدید ثبت شد: {db_customer.name} - {db_customer.phone}")
-        return db_customer
-        
+        elif "foreign key" in error_msg.lower():
+            # خطای مربوط به روابط دیتابیس
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="اطلاعات انتخاب شده معتبر نیست. لطفاً دوباره انتخاب کنید."
+            )
+        else:
+            # خطای عمومی
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="خطا در ثبت پرونده. لطفاً دوباره تلاش کنید."
+            )
+# ============================================
+# دریافت اطلاعات یک سایت با ID
+# ============================================
+@router.get("/sites/{site_id}")
+def get_site(
+    site_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    دریافت اطلاعات کامل یک سایت با ID
+    """
+    try:
+        site = db.query(Site).filter(Site.id == site_id).first()
+        if not site:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="سایت یافت نشد"
+            )
+        return site
     except HTTPException:
-        db.rollback()
         raise
-    except ValidationError as e:
-        db.rollback()
-        # ✅ ارسال خطاهای واضح
-        errors = []
-        for error in e.errors():
-            field = error['loc'][0]
-            msg = error['msg']
-            errors.append(f"{field}: {msg}")
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=errors
-        )
     except Exception as e:
-        db.rollback()
-        logger.error(f"خطا در ثبت مشتری: {e}")
+        logger.error(f"خطا در دریافت سایت {site_id}: {e}")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"خطا در ثبت مشتری: {str(e)}"
+            detail="خطا در دریافت اطلاعات سایت"
+        )
+# ============================================
+# دریافت برگه پذیرش - نسخه نهایی
+# ============================================
+# ============================================
+# دریافت برگه پذیرش - بدون Jinja2
+# ============================================
+@router.get("/repair-orders/{order_id}/receipt")
+async def get_receipt(
+    order_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    دریافت برگه پذیرش پرونده - با HTML خالص
+    """
+    import json
+    
+    try:
+        logger.info(f"🔍 دریافت برگه پذیرش برای پرونده {order_id}")
+        
+        # دریافت اطلاعات پرونده
+        order = db.query(RepairOrder).options(
+            joinedload(RepairOrder.customer),
+            joinedload(RepairOrder.panel),
+            joinedload(RepairOrder.site)
+        ).filter(RepairOrder.id == order_id).first()
+        
+        if not order:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="پرونده یافت نشد"
+            )
+        
+        # دریافت بردها
+        boards = db.query(Board).filter(Board.repair_order_id == order_id).all()
+        
+        # آماده‌سازی داده‌ها
+        data = {
+            "order_id": order.id,
+            "tracking_code": order.tracking_code,
+            "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+            "reception_date": order.reception_date.strftime("%Y-%m-%d %H:%M") if order.reception_date else "",
+            "operator": order.operator_name or "نامشخص",
+            "customer_complaint": order.customer_complaint or "",
+            "physical_damages": order.physical_damages if order.physical_damages else [],
+            "physical_description": order.physical_description or "",
+            "accessories": order.accessories if order.accessories else [],
+            "accessories_description": order.accessories_description or "",
+            "customer": {
+                "name": order.customer.name if order.customer else "",
+                "phone": order.customer.phone if order.customer else "",
+                "address": order.customer.address if order.customer else "",
+                "company": order.customer.company if order.customer else ""
+            },
+            "panel": {
+                "brand": order.panel.brand if order.panel else "",
+                "model": order.panel.model if order.panel else "",
+                "serial_number": order.panel.serial_number if order.panel else "",
+                "part_number": order.panel.part_number if order.panel else ""
+            },
+            "site": {
+                "name": order.site.name if order.site else "",
+                "address": order.site.address if order.site else "",
+                "type": order.site.type if order.site else ""
+            },
+            "boards": [
+                {
+                    "board_type": b.board_type.value if hasattr(b.board_type, 'value') else str(b.board_type),
+                    "part_number": b.part_number or "",
+                    "serial_number": b.serial_number or "",
+                    "revision": b.revision or ""
+                }
+                for b in boards
+            ]
+        }
+        
+        # ============================================
+        # ساخت HTML خالص
+        # ============================================
+        html_content = f"""
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>برگه پذیرش - {data['tracking_code']}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @media print {{
+            .no-print {{ display: none !important; }}
+            body {{ background: white !important; padding: 20px; }}
+            .receipt-card {{ box-shadow: none !important; border: 1px solid #ddd !important; }}
+        }}
+        body {{ font-family: 'Tahoma', sans-serif; background: #f8f9fa; padding: 20px; }}
+        .receipt-card {{ max-width: 800px; margin: 0 auto; background: white; border-radius: 15px; box-shadow: 0 5px 30px rgba(0,0,0,0.1); padding: 30px; }}
+        .receipt-header {{ text-align: center; border-bottom: 2px solid #0d6efd; padding-bottom: 20px; margin-bottom: 20px; }}
+        .receipt-header h2 {{ color: #0d6efd; }}
+        .tracking-code {{ font-size: 24px; font-weight: bold; color: #198754; background: #e7f5e9; padding: 5px 20px; border-radius: 25px; display: inline-block; margin-top: 10px; }}
+        .info-row {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #eee; }}
+        .info-row .label {{ font-weight: bold; color: #555; min-width: 120px; }}
+        .info-row .value {{ color: #333; text-align: left; }}
+        .section-title {{ color: #0d6efd; font-weight: bold; margin-top: 25px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #0d6efd; }}
+        .damage-badge {{ display: inline-block; padding: 5px 15px; border-radius: 20px; margin: 3px; background: #f8d7da; color: #721c24; }}
+        .accessory-badge {{ display: inline-block; padding: 5px 15px; border-radius: 20px; margin: 3px; background: #d1ecf1; color: #0c5460; }}
+        .board-item {{ background: #f8f9fa; border-radius: 10px; padding: 10px 15px; margin-bottom: 10px; border: 1px solid #e9ecef; }}
+        .signature-box {{ border: 1px solid #ddd; border-radius: 10px; padding: 20px; margin-top: 30px; text-align: center; }}
+        .signature-box .sig-line {{ width: 200px; border-bottom: 2px solid #333; margin: 20px auto 5px; }}
+        .print-btn {{ position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 12px 40px; font-size: 18px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }}
+        .back-btn {{ position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 10px 30px; font-size: 16px; border-radius: 30px; width: 200px; }}
+        .empty-value {{ color: #adb5bd; font-style: italic; }}
+    </style>
+</head>
+<body>
+    <div class="receipt-card">
+        <!-- هدر -->
+        <div class="receipt-header">
+            <h2><i class="fas fa-fire-extinguisher"></i> سیستم مدیریت تعمیرات</h2>
+            <h4>برگه پذیرش پرونده</h4>
+            <div class="tracking-code"><i class="fas fa-barcode"></i> {data['tracking_code']}</div>
+            <div class="mt-2">
+                <span class="badge bg-secondary">تاریخ: {data['reception_date']}</span>
+                <span class="badge bg-info ms-2">وضعیت: {data['status']}</span>
+                <span class="badge bg-primary ms-2">اپراتور: {data['operator']}</span>
+            </div>
+        </div>
+
+        <!-- مشتری -->
+        <h5 class="section-title"><i class="fas fa-user"></i> اطلاعات مشتری</h5>
+        <div class="info-row"><span class="label">نام:</span><span class="value">{data['customer']['name'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">شماره تماس:</span><span class="value">{data['customer']['phone'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">آدرس:</span><span class="value">{data['customer']['address'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">شرکت:</span><span class="value">{data['customer']['company'] or 'ثبت نشده'}</span></div>
+
+        <!-- محل نصب -->
+        <h5 class="section-title"><i class="fas fa-map-marker-alt"></i> محل نصب</h5>
+        <div class="info-row"><span class="label">نام محل:</span><span class="value">{data['site']['name'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">نوع:</span><span class="value">{data['site']['type'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">آدرس:</span><span class="value">{data['site']['address'] or 'ثبت نشده'}</span></div>
+
+        <!-- پنل -->
+        <h5 class="section-title"><i class="fas fa-microchip"></i> اطلاعات پنل</h5>
+        <div class="info-row"><span class="label">برند:</span><span class="value">{data['panel']['brand'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">مدل:</span><span class="value">{data['panel']['model'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">سریال نامبر:</span><span class="value">{data['panel']['serial_number'] or 'ثبت نشده'}</span></div>
+        <div class="info-row"><span class="label">پارت نامبر:</span><span class="value">{data['panel']['part_number'] or 'ثبت نشده'}</span></div>
+
+        <!-- بردها -->
+        <h5 class="section-title"><i class="fas fa-layer-group"></i> ساختار بردها</h5>
+        {''.join([f'<div class="board-item"><strong>{b["board_type"]}</strong> <span class="badge bg-secondary">PN: {b["part_number"]}</span> <span class="badge bg-info">SN: {b["serial_number"]}</span></div>' for b in data['boards']]) or '<p class="text-muted">هیچ بردی ثبت نشده است</p>'}
+
+        <!-- وضعیت ظاهری -->
+        <h5 class="section-title"><i class="fas fa-eye"></i> وضعیت ظاهری</h5>
+        <div>
+            {''.join([f'<span class="damage-badge">{d}</span>' for d in data['physical_damages']]) or '<span class="text-muted">ثبت نشده</span>'}
+        </div>
+        {f'<div class="mt-2"><strong>توضیحات:</strong> {data["physical_description"]}</div>' if data['physical_description'] else ''}
+
+        <!-- متعلقات -->
+        <h5 class="section-title"><i class="fas fa-box"></i> متعلقات</h5>
+        <div>
+            {''.join([f'<span class="accessory-badge">{a}</span>' for a in data['accessories']]) or '<span class="text-muted">ثبت نشده</span>'}
+        </div>
+        {f'<div class="mt-2"><strong>توضیحات:</strong> {data["accessories_description"]}</div>' if data['accessories_description'] else ''}
+
+        <!-- شرح مشتری -->
+        <h5 class="section-title"><i class="fas fa-pen"></i> شرح مشتری</h5>
+        <div class="alert alert-light border">{data['customer_complaint'] or 'ثبت نشده'}</div>
+
+        <!-- امضاها -->
+        <div class="signature-box">
+            <div class="row">
+                <div class="col-6"><div class="sig-line"></div><small>امضای مشتری</small></div>
+                <div class="col-6"><div class="sig-line"></div><small>امضای پذیرش</small></div>
+            </div>
+            <div class="mt-3"><small class="text-muted">تاریخ چاپ: {data['reception_date']}</small></div>
+        </div>
+
+        <!-- فوتر -->
+        <div class="text-center mt-4 text-muted" style="font-size: 12px;">
+            <i class="fas fa-fire-extinguisher"></i> سیستم مدیریت تعمیرات تجهیزات اعلام و اطفا حریق
+        </div>
+    </div>
+
+    <button class="btn btn-primary btn-lg print-btn no-print" onclick="window.print()">
+        <i class="fas fa-print"></i> چاپ برگه
+    </button>
+    <a href="/order/{data['order_id']}" class="btn btn-secondary back-btn no-print">
+        <i class="fas fa-arrow-right"></i> بازگشت
+    </a>
+
+    <script>
+        document.addEventListener('keydown', function(e) {{
+            if ((e.ctrlKey || e.metaKey) && e.key === 'p') {{
+                e.preventDefault();
+                window.print();
+            }}
+        }});
+    </script>
+</body>
+</html>
+        """
+        
+        # ============================================
+        # برگرداندن HTML
+        # ============================================
+        return HTMLResponse(content=html_content)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ خطا در دریافت برگه پذیرش: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"خطا در دریافت اطلاعات برگه: {str(e)}"
         )

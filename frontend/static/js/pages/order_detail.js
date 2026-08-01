@@ -3,7 +3,11 @@
 // ============================================
 
 console.log('✅ order_detail.js شروع به کار کرد');
-console.log('📦 orderId:', typeof orderId !== 'undefined' ? orderId : 'تعریف نشده');
+
+// ============================================
+// متغیرهای عمومی
+// ============================================
+var orderId = 0;
 
 // ============================================
 // توابع عمومی
@@ -74,7 +78,6 @@ function changeStatus(newStatus, reason) {
         return;
     }
 
-    // اگر دلیل وارد نشده، از کاربر بپرس
     if (!reason) {
         Swal.fire({
             title: 'توضیح تغییر وضعیت',
@@ -184,7 +187,6 @@ function loadOrder() {
 
     var token = localStorage.getItem('access_token');
 
-    // دریافت اطلاعات پرونده
     fetch('/reception/repair-orders/' + orderId, {
         headers: {
             'Authorization': 'Bearer ' + token,
@@ -200,7 +202,6 @@ function loadOrder() {
     .then(function(order) {
         console.log('📋 اطلاعات پرونده:', order);
 
-        // دریافت تاریخچه و فایل‌ها
         return Promise.all([
             Promise.resolve(order),
             fetch('/reception/repair-orders/' + orderId + '/history', {
@@ -234,6 +235,7 @@ function loadOrder() {
 // ============================================
 function renderOrder(order, history, attachments) {
     console.log('🎨 رندرینگ پرونده:', order.tracking_code);
+    console.log('📋 order.id:', order.id);
 
     var user = getUser();
     var isTechnical = user && (user.role === 'ADMIN' || user.role === 'TECHNICAL');
@@ -252,7 +254,7 @@ function renderOrder(order, history, attachments) {
     };
 
     // ============================================
-    // دکمه‌های تغییر وضعیت - فقط برای کاربران فنی و ادمین
+    // دکمه‌های تغییر وضعیت
     // ============================================
     var actionButtons = '';
 
@@ -315,7 +317,7 @@ function renderOrder(order, history, attachments) {
         actionButtons = `
             <span class="text-muted">
                 <i class="fas fa-info-circle"></i>
-                شما دسترسی تغییر وضعیت ندارید (فقط کاربران فنی و ادمین)
+                شما دسترسی تغییر وضعیت ندارید
             </span>
         `;
     }
@@ -397,6 +399,15 @@ function renderOrder(order, history, attachments) {
     }
 
     // ============================================
+    // ✅ دکمه چاپ برگه پذیرش - هم اندازه با سایر دکمه‌ها
+    // ============================================
+    var printButton = `
+        <a href="/reception/repair-orders/${order.id}/receipt" target="_blank" class="btn btn-success">
+            <i class="fas fa-print"></i> چاپ برگه پذیرش
+        </a>
+    `;
+
+    // ============================================
     // HTML نهایی
     // ============================================
     var html =
@@ -455,6 +466,7 @@ function renderOrder(order, history, attachments) {
                 '<hr class="my-4">' +
                 '<div class="d-flex gap-2 flex-wrap align-items-center">' +
                     actionButtons +
+                    printButton +
                     '<a href="/orders" class="btn btn-secondary">' +
                         '<i class="fas fa-arrow-right"></i> بازگشت' +
                     '</a>' +
@@ -462,7 +474,13 @@ function renderOrder(order, history, attachments) {
             '</div>' +
         '</div>';
 
+    console.log('✅ HTML ساخته شد، دکمه چاپ اضافه شد');
+    
     $('#order-detail').html(html);
+    
+    // بررسی وجود دکمه در DOM
+    var checkBtn = document.querySelector('a[href*="receipt"]');
+    console.log('🔍 دکمه در DOM:', checkBtn ? '✅ پیدا شد' : '❌ پیدا نشد');
 }
 
 // ============================================
@@ -471,7 +489,6 @@ function renderOrder(order, history, attachments) {
 $(document).ready(function() {
     console.log('📄 $(document).ready در order_detail.js اجرا شد');
 
-    // بررسی احراز هویت
     var token = localStorage.getItem('access_token');
     var user = localStorage.getItem('user');
 
@@ -485,19 +502,20 @@ $(document).ready(function() {
         return;
     }
 
-    // بررسی orderId
-    if (typeof orderId === 'undefined' || isNaN(orderId)) {
-        console.error('❌ orderId تعریف نشده یا نامعتبر است');
+    // دریافت orderId از URL
+    var pathParts = window.location.pathname.split('/');
+    orderId = parseInt(pathParts[pathParts.length - 1]);
+
+    if (isNaN(orderId) || orderId <= 0) {
+        console.error('❌ orderId نامعتبر است');
         $('#order-detail').html(
             '<div class="alert alert-danger">' +
-                '<h4><i class="fas fa-exclamation-triangle"></i> خطا</h4>' +
-                '<p>شناسه پرونده نامعتبر است.</p>' +
+                '<h4><i class="fas fa-exclamation-triangle"></i> شناسه نامعتبر</h4>' +
                 '<a href="/orders" class="btn btn-primary mt-2">بازگشت به لیست</a>' +
             '</div>'
         );
         return;
     }
 
-    // بارگذاری پرونده
     loadOrder();
 });

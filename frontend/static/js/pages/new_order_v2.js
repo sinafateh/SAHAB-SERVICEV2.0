@@ -15,7 +15,7 @@ var selectedPanelId = null;
 var boards = [];
 var damagePhotos = [];
 var uploadedPhotoPaths = [];
-
+var selectedSiteData = null;
 // ============================================
 // مدیریت استپ‌ها
 // ============================================
@@ -60,13 +60,46 @@ function updateButtons() {
     $('button[onclick="nextStep()"]').text(currentStep === totalSteps ? 'ثبت نهایی' : 'بعدی');
 }
 
+// ============================================
+// تابع بروزرسانی خلاصه اطلاعات (با نمایش کامل سایت)
+// ============================================
 function updateSummary() {
     var html = '';
-    html += '<p><strong>مشتری:</strong> ' + ($('#selectedCustomerInfo').text() || 'انتخاب نشده') + '</p>';
-    html += '<p><strong>محل نصب:</strong> ' + ($('#selectedSiteInfo')?.text() || 'انتخاب نشده') + '</p>';
-    html += '<p><strong>پنل:</strong> ' + ($('#selectedPanelInfo')?.text() || 'انتخاب نشده') + '</p>';
+    
+    // ✅ دریافت نام مشتری
+    var customerName = $('#selectedCustomerInfo').data('customer-name') || 'انتخاب نشده';
+    html += '<p><strong>مشتری:</strong> ' + customerName + '</p>';
+    
+    // ✅ نمایش اطلاعات کامل سایت
+    if (selectedSiteData) {
+        var siteInfo = selectedSiteData.name;
+        if (selectedSiteData.address) {
+            siteInfo += ' - آدرس: ' + selectedSiteData.address;
+        }
+        if (selectedSiteData.type) {
+            var typeLabels = {
+                'RESIDENTIAL': 'مسکونی',
+                'OFFICE': 'اداری',
+                'COMMERCIAL': 'تجاری',
+                'INDUSTRIAL': 'صنعتی',
+                'HOSPITAL': 'بیمارستان',
+                'HOTEL': 'هتل',
+                'FACTORY': 'کارخانه',
+                'EDUCATIONAL': 'آموزشی',
+                'WAREHOUSE': 'انبار',
+                'OTHER': 'سایر'
+            };
+            siteInfo += ' (' + (typeLabels[selectedSiteData.type] || selectedSiteData.type) + ')';
+        }
+        html += '<p><strong>محل نصب:</strong> ' + siteInfo + '</p>';
+    } else {
+        html += '<p><strong>محل نصب:</strong> انتخاب نشده</p>';
+    }
+    
+    html += '<p><strong>پنل:</strong> ' + ($('#selectedPanelInfo').text() || 'انتخاب نشده') + '</p>';
     html += '<p><strong>تعداد بردها:</strong> ' + boards.length + '</p>';
     html += '<p><strong>تعداد عکس‌ها:</strong> ' + damagePhotos.length + '</p>';
+    
     $('#summaryInfo').html(html);
 }
 
@@ -91,7 +124,10 @@ function loadReceptionInfo() {
 }
 
 // ============================================
-// بخش ۲: مشتری (جستجو/ثبت)
+// بخش ۲: مشتری (جستجو/ثبت) - جستجو با هر سه المان
+// ============================================
+// ============================================
+// بخش ۲: مشتری (جستجو/ثبت) - جستجو با هر سه المان
 // ============================================
 function searchCustomer() {
     var query = $('#customerSearch').val().trim();
@@ -105,7 +141,23 @@ function searchCustomer() {
     $('#searchResults').html('<div class="text-center"><i class="fas fa-spinner fa-spin"></i> در حال جستجو...</div>');
     
     var token = localStorage.getItem('access_token');
-    var url = '/reception/customers/search?q=' + encodeURIComponent(query);
+    
+    // ✅ ساخت URL بر اساس نوع جستجو
+    var url = '/reception/customers/search-v2?';
+    
+    if (searchType === 'phone') {
+        url += 'phone=' + encodeURIComponent(query);
+    } else if (searchType === 'name') {
+        url += 'name=' + encodeURIComponent(query);
+    } else if (searchType === 'company') {
+        url += 'company=' + encodeURIComponent(query);
+    } else {
+        url += 'q=' + encodeURIComponent(query);
+    }
+    
+    console.log('📡 ارسال درخواست به:', url);
+    console.log('🔍 نوع جستجو:', searchType);
+    console.log('🔍 عبارت جستجو:', query);
     
     fetch(url, {
         headers: {
@@ -114,49 +166,51 @@ function searchCustomer() {
         }
     })
     .then(function(response) {
+        console.log('📡 وضعیت پاسخ:', response.status);
         if (!response.ok) throw new Error('خطا در جستجو');
         return response.json();
     })
     .then(function(data) {
-        if (data && data.length > 0) {
-            var html = '<div class="mt-3"><h6>نتایج جستجو:</h6>';
-            for (var i = 0; i < data.length; i++) {
-                var customer = data[i];
-                var displayName = customer.name;
-                if (customer.company) displayName += ' (' + customer.company + ')';
-                html +=
-                    '<div class="customer-result" onclick="selectCustomer(' + customer.id + ')">' +
-                        '<div class="d-flex justify-content-between align-items-center">' +
-                            '<div>' +
-                                '<strong>' + displayName + '</strong><br>' +
-                                '<small class="text-muted">' + customer.phone + ' | ' + (customer.email || 'بدون ایمیل') + '</small>' +
-                            '</div>' +
-                            '<span class="badge bg-primary">انتخاب</span>' +
-                        '</div>' +
-                    '</div>';
+        console.log('📋 نتیجه جستجو:', data);
+        
+        var results = Array.isArray(data) ? data : (data ? [data] : []);
+        
+        if (results.length > 0) {
+            var html = '<div class="mt-3"><h6>نتایج جستجو (' + results.length + ' مورد):</h6>';
+            for (var i = 0; i < results.length; i++) {
+                var c = results[i];
+                var displayName = '';
+                if (c.name && c.last_name) displayName = c.name + ' ' + c.last_name;
+                else if (c.name) displayName = c.name;
+                if (c.company && displayName !== c.company) {
+                    displayName += displayName ? ' (' + c.company + ')' : c.company;
+                }
+                if (!displayName) displayName = c.phone || 'مشتری';
+                
+                html += '<div class="customer-result" onclick="selectCustomer(' + c.id + ')">' +
+                    '<div class="d-flex justify-content-between align-items-center">' +
+                        '<div><strong>' + displayName + '</strong><br>' +
+                        '<small class="text-muted">' + c.phone + ' | ' + (c.email || 'بدون ایمیل') + '</small></div>' +
+                        '<span class="badge bg-primary">انتخاب</span>' +
+                    '</div></div>';
             }
             html += '</div>';
             $('#searchResults').html(html);
         } else {
-            $('#searchResults').html(
-                '<div class="alert alert-warning mt-3">' +
-                    'مشتریی یافت نشد. لطفاً ثبت مشتری جدید را انتخاب کنید.' +
-                '</div>'
-            );
+            $('#searchResults').html('<div class="alert alert-warning mt-3">مشتریی یافت نشد. لطفاً ثبت مشتری جدید را انتخاب کنید.</div>');
         }
     })
     .catch(function(error) {
-        $('#searchResults').html(
-            '<div class="alert alert-danger mt-3">خطا در جستجو: ' + error.message + '</div>'
-        );
+        console.error('❌ خطا:', error);
+        $('#searchResults').html('<div class="alert alert-danger mt-3">خطا در جستجو: ' + error.message + '</div>');
     });
 }
-
+// ✅ تابع انتخاب مشتری (با دکمه حذف)
 function selectCustomer(customerId) {
     selectedCustomerId = customerId;
     
     var token = localStorage.getItem('access_token');
-    fetch('/reception/customers/search?id=' + customerId, {
+    fetch('/reception/customers/search-v2?id=' + customerId, {
         headers: {
             'Authorization': 'Bearer ' + token,
             'Content-Type': 'application/json'
@@ -165,27 +219,55 @@ function selectCustomer(customerId) {
     .then(function(response) { return response.json(); })
     .then(function(customer) {
         if (customer) {
-            var info = customer.name;
-            if (customer.company) info += ' (' + customer.company + ')';
-            info += ' - ' + customer.phone;
-            $('#selectedCustomerInfo').text(info);
+            var displayName = '';
+            if (customer.name && customer.last_name) displayName = customer.name + ' ' + customer.last_name;
+            else if (customer.name) displayName = customer.name;
+            if (customer.company && displayName !== customer.company) {
+                displayName += displayName ? ' (' + customer.company + ')' : customer.company;
+            }
+            if (!displayName) displayName = customer.phone || 'مشتری';
+            
+            var info = displayName + ' - ' + customer.phone;
+            
+            // ✅ ذخیره نام در data برای استفاده در summary
+            $('#selectedCustomerInfo').data('customer-name', displayName);
+            
+            $('#selectedCustomerInfo').html(
+                info + 
+                ' <button type="button" class="btn btn-sm btn-danger ms-2" onclick="clearCustomer()">' +
+                    '<i class="fas fa-times"></i> حذف' +
+                '</button>'
+            );
             $('#selectedCustomer').show();
             $('#searchResults').html('');
             $('#customerSearch').val('');
             
-            // بارگذاری سایت‌های مشتری
             loadSites(customerId);
             updateSummary();
         }
+    })
+    .catch(function(error) {
+        console.error('❌ خطا در دریافت مشتری:', error);
     });
 }
 
+// ✅ تابع لغو انتخاب مشتری (با پیام تایید)
 function clearCustomer() {
     selectedCustomerId = null;
     $('#selectedCustomer').hide();
     $('#selectedCustomerInfo').text('');
     $('#siteList').html('');
+    $('#newSiteForm').hide();
     updateSummary();
+    
+    // ✅ پیام تایید
+    Swal.fire({
+        icon: 'info',
+        title: 'مشتری لغو شد',
+        text: 'انتخاب مشتری با موفقیت لغو شد',
+        timer: 1500,
+        showConfirmButton: false
+    });
 }
 
 function showNewCustomer() {
@@ -272,64 +354,6 @@ function saveCustomer() {
 }
 
 // ============================================
-// تابع انتخاب مشتری (اصلاح شده)
-// ============================================
-function selectCustomer(customerId) {
-    selectedCustomerId = customerId;
-    
-    var token = localStorage.getItem('access_token');
-    fetch('/reception/customers/search-v2?id=' + customerId, {
-        headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json'
-        }
-    })
-    .then(function(response) { return response.json(); })
-    .then(function(customer) {
-        if (customer) {
-            // ✅ نمایش صحیح اطلاعات مشتری
-            var displayName = '';
-            
-            // اگر شخص است و نام و نام خانوادگی دارد
-            if (customer.name && customer.last_name) {
-                displayName = customer.name + ' ' + customer.last_name;
-            } else if (customer.name) {
-                displayName = customer.name;
-            }
-            
-            // اگر شرکت دارد
-            if (customer.company) {
-                displayName += ' (' + customer.company + ')';
-            }
-            
-            // اگر فقط شرکت دارد
-            if (!displayName && customer.company) {
-                displayName = customer.company;
-            }
-            
-            // اگر هیچکدام نبود، از phone استفاده کن
-            if (!displayName) {
-                displayName = customer.phone || 'مشتری';
-            }
-            
-            // نمایش با شماره تماس
-            var info = displayName + ' - ' + customer.phone;
-            $('#selectedCustomerInfo').text(info);
-            $('#selectedCustomer').show();
-            $('#searchResults').html('');
-            $('#customerSearch').val('');
-            
-            // بارگذاری سایت‌های مشتری
-            loadSites(customerId);
-            updateSummary();
-        }
-    })
-    .catch(function(error) {
-        console.error('❌ خطا در دریافت مشتری:', error);
-    });
-}
-
-// ============================================
 // تابع لغو ثبت مشتری جدید (اصلاح شده)
 // ============================================
 function cancelNewCustomer() {
@@ -345,65 +369,176 @@ function cancelNewCustomer() {
 }
 
 // ============================================
-// بخش ۳: محل نصب (Site)
+// بخش ۳: محل نصب (Site) - با دکمه حذف
+// ============================================
+
+// ============================================
+// بارگذاری لیست سایت‌ها (با ارسال اطلاعات کامل)
 // ============================================
 function loadSites(customerId) {
     var token = localStorage.getItem('access_token');
+    
     fetch('/reception/customers/' + customerId + '/sites', {
-        headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
     })
     .then(function(response) { return response.json(); })
     .then(function(data) {
+        var html = '';
+        var isFormOpen = $('#newSiteForm').is(':visible');
+        
+        // ✅ نمایش پیام انتخاب شده با دکمه حذف
+        if (selectedSiteId && selectedSiteData) {
+            var siteInfo = selectedSiteData.name;
+            if (selectedSiteData.address) {
+                siteInfo += ' - ' + selectedSiteData.address;
+            }
+            html += '<div class="alert alert-success mb-2">' +
+                '<i class="fas fa-check-circle"></i> محل نصب انتخاب شد: <strong>' + siteInfo + '</strong>' +
+                ' <button type="button" class="btn btn-sm btn-danger ms-2" onclick="clearSite()">' +
+                    '<i class="fas fa-times"></i> حذف' +
+                '</button>' +
+                '</div>';
+        }
+        
         if (data && data.length > 0) {
-            var html = '<h6>محل‌های نصب موجود:</h6><div class="list-group">';
+            html += '<h6 class="mt-2">محل‌های نصب موجود:</h6><div class="list-group">';
             for (var i = 0; i < data.length; i++) {
                 var site = data[i];
-                html +=
-                    '<div class="list-group-item list-group-item-action" onclick="selectSite(' + site.id + ')">' +
-                        '<div class="d-flex justify-content-between">' +
-                            '<div>' +
-                                '<strong>' + site.name + '</strong><br>' +
-                                '<small class="text-muted">' + site.type + ' | ' + (site.address || 'بدون آدرس') + '</small>' +
-                            '</div>' +
-                            '<span class="badge bg-primary">انتخاب</span>' +
+                var isSelected = (selectedSiteId === site.id);
+                var siteDisplay = site.name;
+                if (site.address) {
+                    siteDisplay += ' - ' + site.address;
+                }
+                html += '<div class="list-group-item list-group-item-action ' + (isSelected ? 'active' : '') + '" onclick="selectSiteFromList(' + site.id + ')">' +
+                    '<div class="d-flex justify-content-between align-items-center">' +
+                        '<div>' +
+                            '<strong>' + siteDisplay + '</strong><br>' +
+                            '<small class="text-muted">' + site.type + ' | ' + (site.address || 'بدون آدرس') + '</small>' +
                         '</div>' +
-                    '</div>';
+                        (isSelected ? '<span class="badge bg-success">✓ انتخاب شده</span>' : '<span class="badge bg-primary">انتخاب</span>') +
+                    '</div></div>';
             }
             html += '</div>';
-            html += '<button type="button" class="btn btn-outline-success mt-2" onclick="showNewSite()">' +
-                        '<i class="fas fa-plus"></i> محل جدید' +
-                    '</button>';
-            $('#siteList').html(html);
         } else {
-            $('#siteList').html(
-                '<div class="alert alert-info">هیچ محلی ثبت نشده است. لطفاً محل جدید ثبت کنید.</div>' +
-                '<button type="button" class="btn btn-success" onclick="showNewSite()">' +
-                    '<i class="fas fa-plus"></i> ثبت محل جدید' +
-                '</button>'
-            );
+            html += '<div class="alert alert-info">هیچ محلی ثبت نشده است. لطفاً محل جدید ثبت کنید.</div>';
         }
+        
+        // ✅ دکمه "محل جدید" فقط در صورتی نمایش داده شود که فرم باز نباشد
+        if (!isFormOpen) {
+            html += '<button type="button" class="btn btn-success mt-2" onclick="showNewSite()">' +
+                '<i class="fas fa-plus"></i> محل جدید' +
+            '</button>';
+        }
+        
+        $('#siteList').html(html);
+        updateSummary();
     });
 }
 
-function selectSite(siteId) {
-    selectedSiteId = siteId;
-    $('#selectedSiteInfo').text('محل انتخاب شد');
+// ✅ تابع جدید برای انتخاب سایت از لیست (با اطلاعات کامل)
+function selectSiteFromList(siteId) {
+    var token = localStorage.getItem('access_token');
+    
+    fetch('/reception/sites/' + siteId, {
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+    })
+    .then(function(response) { 
+        if (!response.ok) {
+            throw new Error('خطا در دریافت اطلاعات سایت');
+        }
+        return response.json(); 
+    })
+    .then(function(site) {
+        if (site) {
+            // ✅ ذخیره اطلاعات کامل سایت
+            selectedSiteId = site.id;
+            selectedSiteData = site;
+            
+            // ✅ ذخیره نام در data
+            $('#selectedSiteInfo').data('site-name', site.name);
+            $('#selectedSiteInfo').text('محل انتخاب شد');
+            
+            // ✅ بروزرسانی لیست سایت‌ها
+            if (selectedCustomerId) {
+                loadSites(selectedCustomerId);
+            }
+            
+            // ✅ بروزرسانی خلاصه اطلاعات
+            updateSummary();
+            
+            // ✅ نمایش پیام تایید (فقط یک بار)
+            Swal.fire({
+                icon: 'success',
+                title: 'محل نصب انتخاب شد',
+                text: site.name + ' با موفقیت انتخاب شد',
+                timer: 1500,
+                showConfirmButton: false
+            });
+        }
+    })
+    .catch(function(error) {
+        console.error('❌ خطا در دریافت سایت:', error);
+        showError('خطا در دریافت اطلاعات سایت');
+    });
+}
+
+// ✅ تابع لغو انتخاب سایت (با پیام تایید)
+// ============================================
+// تابع لغو انتخاب سایت
+// ============================================
+function clearSite() {
+    selectedSiteId = null;
+    selectedSiteData = null; // ✅ پاک کردن اطلاعات کامل
+    $('#selectedSiteInfo').text('');
+    $('#selectedSiteInfo').removeData('site-name');
+    
+    Swal.fire({
+        icon: 'info',
+        title: 'محل نصب لغو شد',
+        text: 'انتخاب محل نصب با موفقیت لغو شد',
+        timer: 1500,
+        showConfirmButton: false
+    });
+    
+    if (selectedCustomerId) loadSites(selectedCustomerId);
     updateSummary();
 }
 
+// ✅ تابع نمایش فرم ثبت محل جدید
 function showNewSite() {
+    // ✅ نمایش فرم
     $('#newSiteForm').show();
-}
-
-function cancelNewSite() {
-    $('#newSiteForm').hide();
+    
+    // ✅ پاک کردن کامل فیلدها
     $('#siteName').val('');
     $('#siteAddress').val('');
+    $('#siteLocation').val('');
+    $('#siteDescription').val('');
+    $('#buildingName').val('');
+    $('#buildingManager').val('');
+    $('#managerPhone').val('');
+    $('#lobbyPhone').val('');
+    $('#responsibleName').val('');
+    $('#responsiblePosition').val('');
+    $('#responsiblePhone').val('');
+    
+    // ✅ تنظیم نوع محل به پیش‌فرض
+    $('#siteType').val('RESIDENTIAL');
+    $('#siteResidentialFields').show();
+    $('#siteOrganizationFields').hide();
+    
+    // ✅ رفرش لیست سایت‌ها (بدون دکمه "محل جدید")
+    if (selectedCustomerId) loadSites(selectedCustomerId);
 }
 
+// ✅ تابع لغو ثبت محل جدید
+function cancelNewSite() {
+    $('#newSiteForm').hide();
+    // ✅ نمایش مجدد دکمه "محل جدید"
+    if (selectedCustomerId) loadSites(selectedCustomerId);
+}
+
+// ✅ تابع ثبت محل جدید
 function saveSite() {
     if (!selectedCustomerId) {
         showError('لطفاً ابتدا مشتری را انتخاب کنید');
@@ -413,18 +548,20 @@ function saveSite() {
     var data = {
         name: $('#siteName').val().trim(),
         type: $('#siteType').val(),
-        address: $('#siteAddress').val().trim(),
-        location: $('#siteLocation').val().trim(),
-        description: $('#siteDescription').val().trim(),
+        address: $('#siteAddress').val().trim() || null,
+        location: $('#siteLocation').val().trim() || null,
+        description: $('#siteDescription').val().trim() || null,
         customer_id: selectedCustomerId
     };
     
     if (!data.name) {
         showError('لطفاً نام محل را وارد کنید');
+        $('#siteName').focus();
         return;
     }
     
     var token = localStorage.getItem('access_token');
+    
     fetch('/reception/sites', {
         method: 'POST',
         headers: {
@@ -443,9 +580,11 @@ function saveSite() {
     })
     .then(function(site) {
         showSuccess('محل نصب با موفقیت ثبت شد');
-        selectSite(site.id);
+        selectedSiteId = site.id;
+        $('#selectedSiteInfo').text('محل انتخاب شد');
         cancelNewSite();
-        loadSites(selectedCustomerId);
+        if (selectedCustomerId) loadSites(selectedCustomerId);
+        updateSummary();
     })
     .catch(function(error) {
         showError(error.message);
@@ -708,31 +847,13 @@ $('#damagePhotos').on('change', function() {
 });
 
 // ============================================
-// بخش ۱۰: ثبت نهایی
+// بخش ۱۰: ثبت نهایی (نسخه بهبود یافته کامل)
 // ============================================
-$('#orderForm').on('submit', function(e) {
-    e.preventDefault();
-    
-    // بررسی اطلاعات ضروری
-    if (!selectedCustomerId) {
-        showError('لطفاً مشتری را انتخاب کنید');
-        goToStep(2);
-        return;
-    }
-    
-    if (!selectedPanelId) {
-        showError('لطفاً پنل را انتخاب کنید');
-        goToStep(5);
-        return;
-    }
-    
-    var complaint = $('#customerComplaint').val().trim();
-    if (!complaint || complaint.length < 3) {
-        showError('لطفاً شرح مشکل را وارد کنید');
-        goToStep(9);
-        return;
-    }
-    
+
+// ============================================
+// تابع ثبت پرونده (جدا شده از رویداد submit)
+// ============================================
+function submitOrder() {
     // جمع‌آوری داده‌ها
     var damages = [];
     $('.damage-checkbox:checked').each(function() {
@@ -759,9 +880,8 @@ $('#orderForm').on('submit', function(e) {
         physical_description: $('#physicalDescription').val().trim() || null,
         accessories: accessories,
         accessories_description: $('#accessoriesDescription').val().trim() || null,
-        customer_complaint: complaint,
-        boards: boards,
-        photos: damagePhotos
+        customer_complaint: $('#customerComplaint').val().trim(),
+        boards: boards
     };
     
     console.log('📦 داده‌های نهایی:', orderData);
@@ -769,6 +889,7 @@ $('#orderForm').on('submit', function(e) {
     // نمایش لودینگ
     Swal.fire({
         title: 'در حال ثبت پرونده...',
+        text: 'لطفاً صبر کنید',
         allowOutsideClick: false,
         showConfirmButton: false,
         willOpen: function() {
@@ -803,22 +924,206 @@ $('#orderForm').on('submit', function(e) {
     })
     .then(function(data) {
         Swal.close();
-        showSuccess(
-            'پرونده با موفقیت ثبت شد!<br><br>' +
-            '<div class="text-center">' +
-                '<strong>کد رهگیری:</strong><br>' +
-                '<code class="fs-3 text-primary fw-bold">' + data.tracking_code + '</code><br><br>' +
-                '<strong>شماره پرونده:</strong> #' + data.id +
-            '</div>'
-        );
         
+        // ✅ نمایش پیام موفقیت با جزئیات کامل
+        var successHtml = 
+            '<div class="text-center">' +
+                '<div class="mb-3 p-3 bg-light rounded">' +
+                    '<strong class="text-muted">کد رهگیری</strong><br>' +
+                    '<code class="fs-1 text-primary fw-bold">' + data.tracking_code + '</code>' +
+                '</div>' +
+                '<div class="row g-2 mb-3">' +
+                    '<div class="col-6">' +
+                        '<div class="p-2 bg-success bg-opacity-10 rounded">' +
+                            '<strong class="text-muted">شماره پرونده</strong><br>' +
+                            '<span class="fs-4 fw-bold text-success">#' + data.id + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-6">' +
+                        '<div class="p-2 bg-info bg-opacity-10 rounded">' +
+                            '<strong class="text-muted">وضعیت</strong><br>' +
+                            '<span class="badge bg-secondary fs-6">ثبت شده</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="row g-2 mb-3">' +
+                    '<div class="col-6">' +
+                        '<div class="p-2 bg-warning bg-opacity-10 rounded">' +
+                            '<strong class="text-muted">تعداد عکس‌ها</strong><br>' +
+                            '<span class="fs-5">' + (data.photos_count || 0) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-6">' +
+                        '<div class="p-2 bg-primary bg-opacity-10 rounded">' +
+                            '<strong class="text-muted">تعداد بردها</strong><br>' +
+                            '<span class="fs-5">' + (data.boards_count || 0) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<hr>' +
+                '<div class="d-grid gap-2 d-md-flex justify-content-md-center">' +
+                    '<button class="btn btn-primary me-md-2" onclick="window.open(\'/print/' + data.id + '\', \'_blank\')">' +
+                        '<i class="fas fa-print"></i> چاپ برگه پذیرش' +
+                    '</button>' +
+                    '<button class="btn btn-success" onclick="window.location.href=\'/order/' + data.id + '\'">' +
+                        '<i class="fas fa-eye"></i> مشاهده پرونده' +
+                    '</button>' +
+                '</div>' +
+            '</div>';
+        
+        Swal.fire({
+            icon: 'success',
+            title: '✅ پرونده با موفقیت ثبت شد!',
+            html: successHtml,
+            showConfirmButton: false,
+            timer: 8000,
+            timerProgressBar: true,
+            allowOutsideClick: true,
+            didOpen: function() {
+                // اضافه کردن استایل برای دکمه‌ها
+                var buttons = document.querySelectorAll('.swal2-html-container .btn');
+                for (var i = 0; i < buttons.length; i++) {
+                    buttons[i].style.margin = '5px';
+                }
+            }
+        });
+        
+        // ✅ هدایت خودکار به صفحه پرونده بعد از ۴ ثانیه
         setTimeout(function() {
             window.location.href = '/order/' + data.id;
-        }, 3000);
+        }, 4000);
     })
     .catch(function(error) {
         Swal.close();
-        showError('خطا در ثبت پرونده: ' + error.message);
+        
+        // ✅ نمایش خطای کاربرپسند
+        Swal.fire({
+            icon: 'error',
+            title: '❌ خطا در ثبت پرونده',
+            text: error.message || 'خطای ناشناخته رخ داده است. لطفاً دوباره تلاش کنید.',
+            confirmButtonColor: '#dc3545',
+            confirmButtonText: 'تلاش مجدد'
+        });
+    });
+}
+
+// ============================================
+// رویداد submit فرم (با اعتبارسنجی کامل)
+// ============================================
+$('#orderForm').on('submit', function(e) {
+    e.preventDefault();
+    
+    // ============================================
+    // 1. اعتبارسنجی اطلاعات ضروری
+    // ============================================
+    
+    // بررسی مشتری
+    if (!selectedCustomerId) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'مشتری انتخاب نشده',
+            text: 'لطفاً ابتدا مشتری را انتخاب کنید',
+            confirmButtonColor: '#0d6efd',
+            confirmButtonText: 'رفتن به بخش مشتری'
+        }).then(function() {
+            goToStep(2);
+            $('#customerSearch').focus();
+        });
+        return;
+    }
+    
+    // بررسی پنل
+    if (!selectedPanelId) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'پنل انتخاب نشده',
+            text: 'لطفاً ابتدا پنل را انتخاب یا ثبت کنید',
+            confirmButtonColor: '#0d6efd',
+            confirmButtonText: 'رفتن به بخش پنل'
+        }).then(function() {
+            goToStep(5);
+            $('#panelSearch').focus();
+        });
+        return;
+    }
+    
+    // بررسی شرح مشتری
+    var complaint = $('#customerComplaint').val().trim();
+    if (!complaint || complaint.length < 3) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'شرح مشکل وارد نشده',
+            text: 'لطفاً شرح مشکل را از زبان مشتری وارد کنید (حداقل ۳ کاراکتر)',
+            confirmButtonColor: '#0d6efd',
+            confirmButtonText: 'رفتن به بخش شرح مشتری'
+        }).then(function() {
+            goToStep(9);
+            $('#customerComplaint').focus();
+        });
+        return;
+    }
+    
+    // ============================================
+    // 2. هشدار برای فیلدهای اختیاری
+    // ============================================
+    
+    // بررسی مسئول ارسال (اختیاری ولی توصیه شده)
+    var senderName = $('#senderName').val().trim();
+    var senderPhone = $('#senderMobile').val().trim();
+    
+    if (!senderName || !senderPhone) {
+        Swal.fire({
+            icon: 'question',
+            title: 'اطلاعات مسئول ارسال',
+            html: 'آیا از ثبت پرونده بدون مشخصات کامل مسئول ارسال مطمئن هستید؟<br>' +
+                  '<small class="text-muted">تکمیل این اطلاعات برای ارتباط با مشتری ضروری است</small>',
+            showCancelButton: true,
+            confirmButtonColor: '#ffc107',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'بله، ثبت کن',
+            cancelButtonText: 'برگشت و تکمیل'
+        }).then(function(result) {
+            if (result.isConfirmed) {
+                submitOrder();
+            } else {
+                goToStep(4);
+                $('#senderName').focus();
+            }
+        });
+        return;
+    }
+    
+    // ============================================
+    // 3. تایید نهایی کاربر
+    // ============================================
+    
+    // نمایش خلاصه اطلاعات برای تایید نهایی
+    var customerName = $('#selectedCustomerInfo').data('customer-name') || 'مشتری انتخاب شده';
+    var panelInfo = $('#selectedPanelInfo').text() || 'پنل انتخاب شده';
+    var siteInfo = selectedSiteData ? selectedSiteData.name : 'محل انتخاب نشده';
+    
+    Swal.fire({
+        title: 'تایید نهایی',
+        html: 
+            '<div class="text-start">' +
+                '<p><strong>👤 مشتری:</strong> ' + customerName + '</p>' +
+                '<p><strong>📍 محل نصب:</strong> ' + siteInfo + '</p>' +
+                '<p><strong>🔧 پنل:</strong> ' + panelInfo + '</p>' +
+                '<p><strong>📦 تعداد بردها:</strong> ' + boards.length + '</p>' +
+                '<p><strong>🖼️ تعداد عکس‌ها:</strong> ' + damagePhotos.length + '</p>' +
+                '<hr>' +
+                '<p class="text-muted small">آیا از صحت اطلاعات وارد شده مطمئن هستید؟</p>' +
+            '</div>',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        cancelButtonColor: '#dc3545',
+        confirmButtonText: '✅ بله، ثبت نهایی',
+        cancelButtonText: '🔙 بررسی مجدد'
+    }).then(function(result) {
+        if (result.isConfirmed) {
+            submitOrder();
+        }
     });
 });
 
