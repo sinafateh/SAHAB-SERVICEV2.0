@@ -1,5 +1,4 @@
-from sqlalchemy import create_engine, text  # ✅ اضافه کردن text
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 from app.config import settings
@@ -19,11 +18,14 @@ engine = create_engine(
     pool_recycle=3600,
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
 
 # ============================================
-# تابع دریافت سشن دیتابیس
+# تابع دریافت سشن دیتابیس برای Dependency
 # ============================================
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
@@ -37,21 +39,20 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 # ============================================
-# تابع تست اتصال (اصلاح شده)
+# تابع تست اتصال دیتابیس
 # ============================================
 def test_connection() -> bool:
-    """تست اتصال به دیتابیس"""
+    """
+    تست اتصال به دیتابیس.
+    این تابع فقط زمانی اجرا می‌شود که صراحتاً فراخوانی شود.
+    """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
-        # ✅ استفاده از text() برای SQL خام
         db.execute(text("SELECT 1"))
-        db.close()
         logger.info("✅ اتصال به دیتابیس برقرار شد")
         return True
     except Exception as e:
         logger.error(f"❌ خطا در اتصال به دیتابیس: {e}")
         return False
-
-# تست اتصال در زمان بارگذاری
-if not test_connection():
-    logger.warning("⚠️ اتصال به دیتابیس برقرار نشد! لطفاً تنظیمات را بررسی کنید.")
+    finally:
+        db.close()
