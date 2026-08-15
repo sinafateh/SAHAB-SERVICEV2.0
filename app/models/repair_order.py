@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum, Boolean, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum, Boolean, JSON, Numeric
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.models.base import Base
@@ -53,6 +53,8 @@ class RepairOrder(Base):
     qr_code = Column(Text, nullable=True)
     
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.REGISTERED)
+    current_stage = Column(String(50), nullable=False, default="RECEPTION_INTAKE", index=True)
+    current_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # اطلاعات پذیرش (Auto)
     reception_date = Column(DateTime, server_default=func.now())
@@ -87,6 +89,13 @@ class RepairOrder(Base):
     
     # شرح مشتری
     customer_complaint = Column(Text, nullable=True)
+    diagnosis_notes = Column(Text, nullable=True)
+    repair_notes = Column(Text, nullable=True)
+    final_test_notes = Column(Text, nullable=True)
+    quoted_price = Column(Numeric(14, 2), nullable=True)
+    price_notes = Column(Text, nullable=True)
+    customer_approval = Column(String(20), nullable=True)
+    customer_approval_note = Column(Text, nullable=True)
     
     # یادداشت‌ها
     notes = Column(Text, nullable=True)
@@ -98,6 +107,9 @@ class RepairOrder(Base):
     repair_start_date = Column(DateTime, nullable=True)
     repair_complete_date = Column(DateTime, nullable=True)
     final_delivery_date = Column(DateTime, nullable=True)
+    price_decided_at = Column(DateTime, nullable=True)
+    customer_response_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
     
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
@@ -108,3 +120,9 @@ class RepairOrder(Base):
     customer = relationship("Customer", backref="repair_orders")
     site = relationship("Site", backref="repair_orders")
     panel = relationship("Panel", backref="panel_repair_orders")  # ✅ نام یکتا
+    current_user = relationship("User", foreign_keys=[current_user_id])
+    transitions = relationship(
+        "WorkflowTransition",
+        back_populates="repair_order",
+        cascade="all, delete-orphan",
+    )

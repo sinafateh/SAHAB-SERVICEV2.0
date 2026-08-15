@@ -67,6 +67,7 @@ function renderUsersTable(users) {
         'RECEPTION': 'پذیرش',
         'CUSTOMER_RELATIONS': 'روابط با مشتریان',
         'TECHNICAL': 'فنی',
+        'MANAGEMENT': 'مدیریت',
         'VIEWER': 'بیننده'
     };
     
@@ -75,6 +76,7 @@ function renderUsersTable(users) {
         'RECEPTION': 'primary',
         'CUSTOMER_RELATIONS': 'info',
         'TECHNICAL': 'warning',
+        'MANAGEMENT': 'dark',
         'VIEWER': 'secondary'
     };
     
@@ -87,6 +89,7 @@ function renderUsersTable(users) {
     html += '<th>نام کاربری</th>';
     html += '<th>نام کامل</th>';
     html += '<th>نقش</th>';
+    html += '<th>بخش</th>';
     html += '<th>وضعیت</th>';
     html += '<th>آخرین ورود</th>';
     html += '<th class="text-center">عملیات</th>';
@@ -108,6 +111,7 @@ function renderUsersTable(users) {
         html += '<td><code class="fw-bold">' + user.username + '</code></td>';
         html += '<td>' + user.full_name + '</td>';
         html += '<td><span class="badge bg-' + roleColor + '">' + roleLabel + '</span></td>';
+        html += '<td>' + (user.department || '-') + '</td>';
         html += '<td>' + statusBadge + '</td>';
         html += '<td><small>' + formatDate(user.last_login) + '</small></td>';
         html += '<td class="text-center">';

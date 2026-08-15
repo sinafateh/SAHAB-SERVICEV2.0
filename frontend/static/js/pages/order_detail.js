@@ -209,6 +209,9 @@ function loadOrder() {
             }).then(function(r) { return r.ok ? r.json() : []; }),
             fetch('/reception/repair-orders/' + orderId + '/attachments', {
                 headers: { 'Authorization': 'Bearer ' + token }
+            }).then(function(r) { return r.ok ? r.json() : []; }),
+            fetch('/api/workflow/orders/' + orderId + '/history', {
+                headers: { 'Authorization': 'Bearer ' + token }
             }).then(function(r) { return r.ok ? r.json() : []; })
         ]);
     })
@@ -216,7 +219,8 @@ function loadOrder() {
         var order = data[0];
         var history = data[1] || [];
         var attachments = data[2] || [];
-        renderOrder(order, history, attachments);
+        var workflowHistory = data[3] || [];
+        renderOrder(order, history, attachments, workflowHistory);
     })
     .catch(function(error) {
         console.error('❌ خطا:', error);
@@ -233,7 +237,7 @@ function loadOrder() {
 // ============================================
 // تابع رندر پرونده
 // ============================================
-function renderOrder(order, history, attachments) {
+function renderOrder(order, history, attachments, workflowHistory) {
     console.log('🎨 رندرینگ پرونده:', order.tracking_code);
     console.log('📋 order.id:', order.id);
 
@@ -477,10 +481,184 @@ function renderOrder(order, history, attachments) {
     console.log('✅ HTML ساخته شد، دکمه چاپ اضافه شد');
     
     $('#order-detail').html(html);
+    renderWorkflowControls(order, workflowHistory || []);
     
     // بررسی وجود دکمه در DOM
     var checkBtn = document.querySelector('a[href*="receipt"]');
     console.log('🔍 دکمه در DOM:', checkBtn ? '✅ پیدا شد' : '❌ پیدا نشد');
+}
+
+function workflowHeaders() {
+    var token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
+    return { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+}
+
+function renderWorkflowControls(order, workflowHistory) {
+    var wrapper = document.querySelector('#order-detail .card-body');
+    if (!wrapper) return;
+
+    var historyHtml = (workflowHistory || []).length
+        ? workflowHistory.map(function(item) {
+            return '<div class="border-bottom py-2">' +
+                '<strong>' + (item.from_user_name || '-') + '</strong> <i class="fas fa-arrow-left mx-1"></i> ' +
+                '<strong>' + (item.to_user_name || '-') + '</strong>' +
+                '<div class="small text-muted">مرحله: ' + (item.stage || '-') + ' | وضعیت: ' + (item.status || '-') +
+                ' | ' + formatDate(item.created_at) + '</div>' +
+                (item.rejection_reason ? '<div class="text-danger small">دلیل رد: ' + item.rejection_reason + '</div>' : '') +
+                '</div>';
+        }).join('')
+        : '<div class="text-muted">هنوز انتقالی برای این پرونده ثبت نشده است.</div>';
+
+    var card = document.createElement('div');
+    card.className = 'card bg-light mt-4';
+    card.innerHTML =
+        '<div class="card-body">' +
+        '<h5 class="text-primary"><i class="fas fa-route"></i> گردش پرونده</h5>' +
+        '<div class="small mb-3">مرحله فعلی: <strong>' + (order.current_stage || 'RECEPTION_INTAKE') +
+        '</strong> | مسئول فعلی: <strong>' + (order.current_user_id || 'ثبت نشده') + '</strong></div>' +
+        '<div id="workflowActionArea" class="mb-3"></div>' +
+        '<form id="orderWorkflowForm" class="row g-2 align-items-end">' +
+        '<div class="col-md-4"><label class="form-label">مرحله بعد</label><select class="form-select" id="workflowStage" required><option value="">انتخاب کنید</option></select></div>' +
+        '<div class="col-md-3"><label class="form-label">بخش</label><input class="form-control" id="workflowDepartment" readonly></div>' +
+        '<div class="col-md-3"><label class="form-label">گیرنده</label><select class="form-select" id="workflowRecipient" required><option value="">ابتدا مرحله را انتخاب کنید</option></select></div>' +
+        '<div class="col-md-2"><button class="btn btn-primary w-100" type="submit">ارسال انتقال</button></div>' +
+        '<div class="col-12"><textarea class="form-control" id="workflowNote" rows="2" placeholder="توضیح انتقال (اختیاری)"></textarea></div>' +
+        '</form>' +
+        '<hr><h6>تاریخچه انتقال‌ها</h6><div>' + historyHtml + '</div>' +
+        '</div>';
+    wrapper.appendChild(card);
+
+    var stageSelect = card.querySelector('#workflowStage');
+    var deptInput = card.querySelector('#workflowDepartment');
+    var recipientSelect = card.querySelector('#workflowRecipient');
+    var departmentLabels = { RECEPTION: 'پذیرش', TECHNICAL: 'فنی', MANAGEMENT: 'مدیریت', CUSTOMER_RELATIONS: 'ارتباط با مشتریان' };
+    var stages = [];
+    renderWorkflowAction(order, card.querySelector('#workflowActionArea'));
+
+    fetch('/api/workflow/stages', { headers: workflowHeaders() })
+        .then(function(response) { return response.json(); })
+        .then(function(items) {
+            stages = items || [];
+            stages.forEach(function(item) {
+                var option = document.createElement('option');
+                option.value = item.code;
+                option.textContent = item.label;
+                option.dataset.department = item.department;
+                stageSelect.appendChild(option);
+            });
+        });
+
+    stageSelect.addEventListener('change', function() {
+        var selected = stages.find(function(item) { return item.code === stageSelect.value; });
+        deptInput.value = selected ? (departmentLabels[selected.department] || selected.department) : '';
+        recipientSelect.innerHTML = '<option value="">در حال بارگذاری...</option>';
+        if (!selected) return;
+        fetch('/api/panel/users/by-department/' + encodeURIComponent(selected.department), { headers: workflowHeaders() })
+            .then(function(response) { return response.json(); })
+            .then(function(users) {
+                recipientSelect.innerHTML = '<option value="">انتخاب گیرنده</option>';
+                (users || []).forEach(function(user) {
+                    var option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.full_name + ' (' + user.username + ')';
+                    recipientSelect.appendChild(option);
+                });
+            });
+    });
+
+    card.querySelector('#orderWorkflowForm').addEventListener('submit', function(event) {
+        event.preventDefault();
+        var payload = {
+            to_user_id: Number(recipientSelect.value),
+            stage: stageSelect.value,
+            to_department: stages.find(function(item) { return item.code === stageSelect.value; })?.department || null,
+            note: card.querySelector('#workflowNote').value.trim() || null
+        };
+        fetch('/api/workflow/orders/' + order.id + '/transfer', {
+            method: 'POST',
+            headers: workflowHeaders(),
+            body: JSON.stringify(payload)
+        }).then(function(response) {
+            return response.json().then(function(body) {
+                if (!response.ok) throw new Error(body.detail || 'انتقال ثبت نشد');
+                return body;
+            });
+        }).then(function() {
+            if (typeof showSuccess === 'function') showSuccess('درخواست انتقال ثبت شد و برای گیرنده اعلان ارسال گردید.');
+            loadOrder();
+        }).catch(function(error) {
+            if (typeof showError === 'function') showError(error.message);
+        });
+    });
+}
+
+function renderWorkflowAction(order, container) {
+    var definitions = {
+        TECHNICAL_DIAGNOSIS: { action: 'DIAGNOSIS', title: 'ثبت نتیجه عیب‌یابی', placeholder: 'شرح عیب و نتیجه بررسی...' },
+        MANAGEMENT_PRICING: { action: 'PRICING', title: 'ثبت قیمت پیشنهادی', placeholder: 'توضیحات قیمت‌گذاری...' },
+        CUSTOMER_APPROVAL: { action: 'CUSTOMER_DECISION', title: 'ثبت نظر مشتری', placeholder: 'توضیح تماس با مشتری...' },
+        TECHNICAL_REPAIR: { action: 'REPAIR_COMPLETE', title: 'ثبت پایان تعمیر', placeholder: 'شرح تعمیرات انجام‌شده...' },
+        TECHNICAL_FINAL_TEST: { action: 'FINAL_TEST', title: 'ثبت تست نهایی', placeholder: 'نتیجه تست نهایی...' },
+        RECEPTION_DELIVERY: { action: 'DELIVER', title: 'ثبت تحویل دستگاه', placeholder: 'یادداشت تحویل...' }
+    };
+    var definition = definitions[order.current_stage];
+    if (!definition) return;
+
+    var priceField = definition.action === 'PRICING'
+        ? '<input id="workflowQuotedPrice" type="number" min="0" step="0.01" class="form-control mb-2" placeholder="مبلغ پیشنهادی">'
+        : '';
+    var approvalField = definition.action === 'CUSTOMER_DECISION'
+        ? '<div class="btn-group mb-2" role="group"><button type="button" class="btn btn-success" data-approval="true">موافقت مشتری</button><button type="button" class="btn btn-outline-danger" data-approval="false">عدم موافقت</button></div>'
+        : '';
+    var submitField = definition.action === 'CUSTOMER_DECISION'
+        ? ''
+        : '<button class="btn btn-outline-primary" type="submit">' +
+          (definition.action === 'DELIVER' ? 'ثبت تحویل دستگاه' : 'ثبت اقدام') +
+          '</button>';
+
+    container.innerHTML =
+        '<div class="border rounded p-3 bg-white">' +
+        '<h6 class="text-primary"><i class="fas fa-clipboard-check"></i> ' + definition.title + '</h6>' +
+        '<form id="workflowActionForm">' +
+        priceField +
+        '<textarea id="workflowActionNotes" class="form-control mb-2" rows="2" placeholder="' + definition.placeholder + '"></textarea>' +
+        approvalField + submitField +
+        '</form></div>';
+
+    var submitAction = function(approved) {
+        var payload = {
+            action: definition.action,
+            notes: container.querySelector('#workflowActionNotes').value.trim() || null,
+            quoted_price: container.querySelector('#workflowQuotedPrice')?.value
+                ? Number(container.querySelector('#workflowQuotedPrice').value) : null,
+            approved: approved === undefined ? null : approved
+        };
+        fetch('/api/workflow/orders/' + order.id + '/action', {
+            method: 'POST',
+            headers: workflowHeaders(),
+            body: JSON.stringify(payload)
+        }).then(function(response) {
+            return response.json().then(function(body) {
+                if (!response.ok) throw new Error(body.detail || 'اقدام ثبت نشد');
+                return body;
+            });
+        }).then(function() {
+            if (typeof showSuccess === 'function') showSuccess('اقدام workflow ثبت شد.');
+            loadOrder();
+        }).catch(function(error) {
+            if (typeof showError === 'function') showError(error.message);
+        });
+    };
+
+    container.querySelector('#workflowActionForm').addEventListener('submit', function(event) {
+        event.preventDefault();
+        submitAction();
+    });
+    container.querySelectorAll('[data-approval]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            submitAction(button.dataset.approval === 'true');
+        });
+    });
 }
 
 // ============================================

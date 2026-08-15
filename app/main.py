@@ -4,7 +4,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -12,6 +12,8 @@ from app.config import settings
 from app.database import engine, SessionLocal, test_connection
 from app.models import Base
 from app.routes import reception, auth
+from app.routes.user_panel import router as user_panel_router
+from app.routes.workflow import router as workflow_router
 
 # ============================================
 # تنظیم لاگ
@@ -119,6 +121,8 @@ app.mount(
 # ============================================
 app.include_router(reception.router)
 app.include_router(auth.router)
+app.include_router(user_panel_router)
+app.include_router(workflow_router)
 
 # ============================================
 # تابع کمکی برای خواندن فایل‌های HTML
@@ -159,12 +163,12 @@ def read_html_file(filename: str) -> str:
 # ============================================
 # صفحات UI
 # ============================================
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", include_in_schema=False)
 async def home():
     """
-    صفحه اصلی
+    مسیر ورود سامانه؛ صفحه عمومی نمایش داده نمی‌شود.
     """
-    return read_html_file("index.html")
+    return RedirectResponse(url="/login", status_code=307)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -173,6 +177,10 @@ async def login_page():
     صفحه ورود
     """
     return read_html_file("login.html")
+
+@app.get("/panel", response_class=HTMLResponse, include_in_schema=False)
+async def panel_page():
+    return read_html_file("panel.html")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)

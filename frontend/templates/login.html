@@ -52,7 +52,7 @@
     // اگر قبلاً وارد شده بود، به صفحه اصلی برود
     const token = localStorage.getItem('access_token');
     if (token) {
-        window.location.href = '/';
+        window.location.href = '/panel';
     }
 
     $('#loginForm').on('submit', function(e) {
@@ -95,7 +95,7 @@
                 timer: 1500,
                 showConfirmButton: false
             }).then(() => {
-                window.location.href = '/';
+                window.location.href = '/panel';
             });
         })
         .catch(error => {

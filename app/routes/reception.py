@@ -175,6 +175,18 @@ def format_order_response(order: RepairOrder) -> dict:
         "id": order.id,
         "tracking_code": order.tracking_code,
         "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+        "current_stage": order.current_stage,
+        "current_user_id": order.current_user_id,
+        "quoted_price": order.quoted_price,
+        "price_notes": order.price_notes,
+        "diagnosis_notes": order.diagnosis_notes,
+        "repair_notes": order.repair_notes,
+        "final_test_notes": order.final_test_notes,
+        "customer_approval": order.customer_approval,
+        "customer_approval_note": order.customer_approval_note,
+        "price_decided_at": order.price_decided_at,
+        "customer_response_at": order.customer_response_at,
+        "delivered_at": order.delivered_at,
         "reception_date": order.reception_date,
         "technical_review_date": order.technical_review_date,
         "diagnosis_date": order.diagnosis_date,
@@ -372,7 +384,10 @@ def create_repair_order(
         db_order = RepairOrder(
             **order.model_dump(),
             tracking_code=tracking_code,
-            status=OrderStatus.REGISTERED
+            status=OrderStatus.REGISTERED,
+            current_stage="RECEPTION_INTAKE",
+            current_user_id=current_user.id,
+            operator_name=current_user.full_name,
         )
         db.add(db_order)
         db.commit()
@@ -1390,6 +1405,8 @@ async def create_repair_order_v2(
             'tracking_code': tracking_code,
             'qr_code': None,
             'status': OrderStatus.REGISTERED,
+            'current_stage': 'RECEPTION_INTAKE',
+            'current_user_id': current_user.id,
             'operator_name': current_user.full_name,
             'customer_id': customer_id,
             'site_id': site_id,
@@ -1414,6 +1431,9 @@ async def create_repair_order_v2(
             'repair_start_date': None,
             'repair_complete_date': None,
             'final_delivery_date': None,
+            'price_decided_at': None,
+            'customer_response_at': None,
+            'delivered_at': None,
             'updated_at': None
         }
         

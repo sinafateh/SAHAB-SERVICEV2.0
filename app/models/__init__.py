@@ -8,6 +8,8 @@ from app.models.attachment import Attachment
 from app.models.site import Site, SiteType
 from app.models.panel import Panel
 from app.models.board import Board, BoardType
+from app.models.notification import Notification
+from app.models.workflow_transition import WorkflowTransition
 
 __all__ = [
     'Base',
@@ -26,5 +28,7 @@ __all__ = [
     'SiteType',
     'Panel',
     'Board',
-    'BoardType'
+    'BoardType',
+    'Notification',
+    'WorkflowTransition',
 ]

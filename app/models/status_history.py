@@ -11,6 +11,7 @@ class StatusHistory(Base):
     old_status = Column(Enum(OrderStatus), nullable=True)
     new_status = Column(Enum(OrderStatus), nullable=False)
     reason = Column(Text, nullable=True)
+    note = Column(Text, nullable=True)
     operator_name = Column(String(100), nullable=True)
     changed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     changed_at = Column(DateTime, server_default=func.now())

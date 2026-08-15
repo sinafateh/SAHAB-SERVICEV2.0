@@ -33,6 +33,7 @@ class TokenResponse(BaseModel):
     username: str
     full_name: str
     role: str
+    department: Optional[str] = None
     expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # تبدیل به ثانیه
 
 class UserRegister(BaseModel):
@@ -43,6 +44,7 @@ class UserRegister(BaseModel):
     email: Optional[EmailStr] = Field(None, description="ایمیل")
     phone: Optional[str] = Field(None, max_length=20, description="شماره تماس")
     role: str = Field("VIEWER", description="نقش کاربر")
+    department: Optional[str] = Field(None, max_length=50)
 
 class UserUpdate(BaseModel):
     """بروزرسانی اطلاعات کاربر"""
@@ -50,6 +52,7 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = Field(None, max_length=20)
     role: Optional[str] = None
+    department: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
 
 class ChangePassword(BaseModel):
@@ -65,6 +68,7 @@ class UserResponse(BaseModel):
     email: Optional[str]
     phone: Optional[str]
     role: str
+    department: Optional[str]
     is_active: bool
     last_login: Optional[datetime]
     created_at: datetime
@@ -76,7 +80,13 @@ class UserResponse(BaseModel):
 # ============================================
 # لیست نقش‌های معتبر
 # ============================================
-VALID_ROLES = ["ADMIN", "RECEPTION", "CUSTOMER_RELATIONS", "TECHNICAL", "VIEWER"]
+VALID_ROLES = ["ADMIN", "RECEPTION", "CUSTOMER_RELATIONS", "TECHNICAL", "MANAGEMENT", "VIEWER"]
+ROLE_DEPARTMENTS = {
+    "RECEPTION": "RECEPTION",
+    "CUSTOMER_RELATIONS": "CUSTOMER_RELATIONS",
+    "TECHNICAL": "TECHNICAL",
+    "MANAGEMENT": "MANAGEMENT",
+}
 
 # ============================================
 # 1. ورود به سیستم
@@ -135,6 +145,7 @@ def login(
         username=user.username,
         full_name=user.full_name,
         role=user.role,
+        department=user.department,
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
 
@@ -175,6 +186,15 @@ def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(VALID_ROLES)}"
         )
+
+    expected_department = ROLE_DEPARTMENTS.get(user_data.role)
+    if expected_department and user_data.department and user_data.department != expected_department:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="بخش انتخاب‌شده با نقش کاربر سازگار نیست",
+        )
+    if expected_department and not user_data.department:
+        user_data.department = expected_department
     
     # هش کردن رمز عبور
     hashed_password = get_password_hash(user_data.password)
@@ -187,6 +207,7 @@ def register(
         email=user_data.email,
         phone=user_data.phone,
         role=user_data.role,
+        department=user_data.department,
         is_active=True
     )
     
@@ -292,6 +313,11 @@ def update_user(
                 detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(VALID_ROLES)}"
             )
         user.role = user_data.role
+    if user_data.department is not None:
+        user.department = user_data.department
+    expected_department = ROLE_DEPARTMENTS.get(user.role)
+    if expected_department:
+        user.department = expected_department
     if user_data.is_active is not None:
         user.is_active = user_data.is_active
     
