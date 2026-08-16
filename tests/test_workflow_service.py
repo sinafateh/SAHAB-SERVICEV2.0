@@ -10,6 +10,8 @@ from app.models import (
     OrderStatus,
     Panel,
     RepairOrder,
+    CaseTimelineEvent,
+    TechnicalStageTiming,
     User,
     WorkflowTransition,
 )
@@ -116,6 +118,33 @@ class WorkflowServiceTest(unittest.TestCase):
         self.assertEqual(self.order.current_user_id, self.tech_one.id)
         self.assertEqual(self.session.query(WorkflowTransition).count(), 2)
         self.assertGreaterEqual(self.session.query(Notification).count(), 3)
+
+    def test_technical_stage_timing_creates_duration_and_timeline_events(self):
+        transition = WorkflowService.transfer_order(
+            self.session,
+            self.order,
+            self.reception,
+            self.tech_one.id,
+            "TECHNICAL_DIAGNOSIS",
+            "TECHNICAL",
+        )
+        WorkflowService.receive_transition(self.session, transition.id, self.tech_one)
+        self.session.refresh(self.order)
+
+        started = WorkflowService.start_timing(
+            self.session, self.order, self.tech_one, "TECHNICAL_DIAGNOSIS"
+        )
+        started_status = started.status
+        completed = WorkflowService.complete_timing(
+            self.session, self.order, self.tech_one, "TECHNICAL_DIAGNOSIS"
+        )
+
+        self.assertEqual(started_status, "RUNNING")
+        self.assertEqual(completed.status, "COMPLETED")
+        self.assertIsNotNone(completed.completed_at)
+        self.assertGreaterEqual(completed.duration_seconds, 0)
+        self.assertEqual(self.session.query(TechnicalStageTiming).count(), 1)
+        self.assertEqual(self.session.query(CaseTimelineEvent).count(), 4)
 
 
 if __name__ == "__main__":

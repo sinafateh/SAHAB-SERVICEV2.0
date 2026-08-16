@@ -1,379 +1,207 @@
 (() => {
   "use strict";
+  const orderId = Number(window.orderId) || Number(location.pathname.split("/").filter(Boolean).pop());
+  const token = () => localStorage.getItem("access_token") || "";
+  const escapeHtml = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
+  const faDate = v => v ? new Date(v).toLocaleString("fa-IR") : "-";
+  const clockDate = v => v ? new Date(v).toLocaleString("fa-IR", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+  }) : "-";
+  const stageLabels = {
+    RECEPTION: "پذیرش", REPAIR: "تعمیر", TEST: "تست", DELIVERY: "تحویل", GENERAL: "عمومی",
+    RECEPTION_INTAKE: "پذیرش", TECHNICAL_DIAGNOSIS: "عیب‌یابی فنی", MANAGEMENT_PRICING: "قیمت‌گذاری",
+    CUSTOMER_APPROVAL: "تأیید مشتری", TECHNICAL_REPAIR: "تعمیر فنی",
+    TECHNICAL_FINAL_TEST: "تست نهایی", RECEPTION_DELIVERY: "آماده تحویل"
+  };
+  const timedStages = new Set(["TECHNICAL_DIAGNOSIS", "TECHNICAL_REPAIR", "TECHNICAL_FINAL_TEST"]);
+  let sessionUser = null;
 
-  const orderId =
-    Number(window.orderId) ||
-    Number(window.location.pathname.split("/").filter(Boolean).pop());
-  const token = () =>
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("token") ||
-    "";
-  const headers = () => ({
-    Authorization: `Bearer ${token()}`,
-    "Content-Type": "application/json",
-  });
-  const escapeHtml = (value) =>
-    String(value ?? "").replace(/[&<>"']/g, (char) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;",
-    }[char]));
-  const date = (value) =>
-    value ? new Date(value).toLocaleString("fa-IR") : "-";
-
-  async function getJson(url) {
-    const response = await fetch(url, { headers: headers() });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(body.detail || "خطا در دریافت اطلاعات");
-    }
-    return body;
-  }
-
-  async function postJson(url, payload) {
+  async function api(url, options = {}) {
     const response = await fetch(url, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(payload),
+      ...options,
+      headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json", ...(options.headers || {}) }
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(body.detail || "عملیات انجام نشد");
-    }
+    if (!response.ok) throw new Error(body.detail || "عملیات انجام نشد");
     return body;
   }
 
-  function message(text, type = "success") {
-    if (typeof window.Swal !== "undefined") {
-      window.Swal.fire({
-        icon: type,
-        text,
-        timer: type === "success" ? 2200 : undefined,
-        showConfirmButton: type !== "success",
-      });
-    } else {
-      window.alert(text);
+  async function loadSessionUser() {
+    if (sessionUser?.id) return sessionUser;
+    try {
+      const body = await api("/auth/verify");
+      sessionUser = body.user || {};
+      const savedUser = JSON.parse(localStorage.getItem("user") || "{}");
+      localStorage.setItem("user", JSON.stringify({ ...savedUser, ...sessionUser }));
+    } catch (_) {
+      sessionUser = null;
     }
+    return sessionUser;
   }
+  const formatClockDuration = seconds => {
+    if (seconds == null) return "در حال اجرا";
+    const total = Math.max(0, Number(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (!hours && !minutes && total > 0) return "کمتر از یک دقیقه";
+    return hours ? `${hours} ساعت و ${minutes} دقیقه` : `${minutes} دقیقه`;
+  };
+  const notify = (text, icon = "success") => window.Swal ? Swal.fire({ icon, text, timer: icon === "success" ? 1800 : undefined, showConfirmButton: icon !== "success" }) : alert(text);
+  const currentUser = () => { try { return JSON.parse(localStorage.getItem("user") || "{}"); } catch { return {}; } };
+  const formatDuration = seconds => {
+    if (seconds == null) return "در حال اجرا";
+    const total = Math.max(0, Number(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (!hours && !minutes && total > 0) return "کمتر از یک دقیقه";
+    return hours ? `${hours} ساعت و ${minutes} دقیقه` : `${minutes} دقیقه`;
+    /*
+    if (seconds == null) return "در حال اجرا";
+    const s = Math.max(0, Number(seconds)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+    */
+  };
 
-  function statusBadge(status) {
-    const colors = {
-      "ثبت شده": "secondary",
-      "در حال عیب‌یابی": "info",
-      "در انتظار تایید مشتری": "primary",
-      "در حال تعمیر": "warning",
-      "کنترل نهایی": "secondary",
-      "آماده تحویل": "success",
-      "تحویل شده": "success",
-      "مختومه بدون تعمیر": "danger",
-    };
-    return `<span class="badge bg-${colors[status] || "secondary"}">${escapeHtml(
-      status || "-"
-    )}</span>`;
+  function renderImages(items) {
+    const images = items.filter(x => x.file_type === "photo" || (x.mime_type || "").startsWith("image/"));
+    if (!images.length) return '<div class="text-muted">تصویر مرحله‌ای ثبت نشده است.</div>';
+    return `<div id="caseImageCarousel" class="carousel slide" data-bs-ride="false">
+      <div class="carousel-inner rounded">${images.map((item, i) => `<div class="carousel-item ${i === 0 ? "active" : ""}">
+        <img src="${escapeHtml(item.file_path)}" class="d-block w-100" style="max-height:360px;object-fit:contain;background:#f8f9fa" alt="${escapeHtml(item.file_name)}">
+        <div class="carousel-caption d-block bg-dark bg-opacity-50 rounded"><span>${escapeHtml(stageLabels[item.stage] || item.stage || "عمومی")}</span> · ${escapeHtml(item.file_name)}</div>
+      </div>`).join("")}</div>
+      <button class="carousel-control-prev" type="button" data-bs-target="#caseImageCarousel" data-bs-slide="prev"><span class="carousel-control-prev-icon"></span></button>
+      <button class="carousel-control-next" type="button" data-bs-target="#caseImageCarousel" data-bs-slide="next"><span class="carousel-control-next-icon"></span></button>
+    </div>`;
   }
 
   function renderAttachments(items) {
-    if (!items?.length) {
-      return '<p class="text-muted mb-0">فایلی برای این پرونده ثبت نشده است.</p>';
-    }
-    return `<div class="row g-2">${items
-      .map(
-        (item) => `
-        <div class="col-md-4">
-          <div class="border rounded p-2 h-100">
-            <div class="small text-truncate">${escapeHtml(item.file_name)}</div>
-            <a class="btn btn-sm btn-outline-primary mt-2" href="${escapeHtml(
-              item.file_path
-            )}" target="_blank">مشاهده فایل</a>
-          </div>
-        </div>`
-      )
-      .join("")}</div>`;
+    if (!items?.length) return '<div class="text-muted">فایلی برای این پرونده ثبت نشده است.</div>';
+    return `<div class="row g-2">${items.map(item => `<div class="col-md-4"><div class="border rounded p-2 h-100">
+      <div class="fw-semibold text-truncate">${escapeHtml(item.file_name)}</div>
+      <small class="text-muted">${escapeHtml(stageLabels[item.stage] || item.stage || "عمومی")} · ${faDate(item.uploaded_at)}</small>
+      <a class="btn btn-sm btn-outline-primary mt-2" target="_blank" href="${escapeHtml(item.file_path)}">مشاهده</a>
+    </div></div>`).join("")}</div>`;
   }
 
-  function renderWorkflowHistory(items) {
-    if (!items?.length) {
-      return '<p class="text-muted mb-0">هنوز انتقالی برای این پرونده ثبت نشده است.</p>';
-    }
-    return items
-      .map(
-        (item) => `
-        <div class="border-bottom py-2">
-          <div><strong>${escapeHtml(item.from_user_name || "-")}</strong>
-          <i class="fas fa-arrow-left mx-2"></i>
-          <strong>${escapeHtml(item.to_user_name || "-")}</strong></div>
-          <div class="small text-muted">
-            مرحله: ${escapeHtml(item.stage || "-")} |
-            وضعیت انتقال: ${escapeHtml(item.status || "-")} |
-            ${date(item.created_at)}
-          </div>
-          ${
-            item.rejection_reason
-              ? `<div class="small text-danger">دلیل رد: ${escapeHtml(
-                  item.rejection_reason
-                )}</div>`
-              : ""
-          }
-        </div>`
-      )
-      .join("");
+  function renderTimeline(items) {
+    if (!items?.length) return '<div class="text-muted">رویدادی ثبت نشده است.</div>';
+    return `<div class="case-timeline">${items.map(item => `<div class="case-timeline-item">
+      <div class="case-timeline-dot"></div><div class="case-timeline-content">
+      <div class="d-flex justify-content-between gap-2"><strong>${escapeHtml(item.title)}</strong><small class="text-muted">${faDate(item.created_at)}</small></div>
+      <div class="small text-muted">${escapeHtml(stageLabels[item.stage] || item.stage || "")}${item.actor_name ? ` · ${escapeHtml(item.actor_name)}` : ""}</div>
+      ${item.description ? `<div class="mt-1">${escapeHtml(item.description)}</div>` : ""}</div></div>`).join("")}</div>`;
   }
 
-  function actionDefinition(stage) {
-    return {
-      TECHNICAL_DIAGNOSIS: {
-        action: "DIAGNOSIS",
-        title: "ثبت نتیجه عیب‌یابی",
-        placeholder: "شرح عیب و نتیجه بررسی فنی",
-      },
-      MANAGEMENT_PRICING: {
-        action: "PRICING",
-        title: "ثبت قیمت پیشنهادی",
-        placeholder: "توضیحات مربوط به قیمت‌گذاری",
-      },
-      CUSTOMER_APPROVAL: {
-        action: "CUSTOMER_DECISION",
-        title: "ثبت نظر مشتری",
-        placeholder: "توضیح تماس و تصمیم مشتری",
-      },
-      TECHNICAL_REPAIR: {
-        action: "REPAIR_COMPLETE",
-        title: "ثبت پایان تعمیر",
-        placeholder: "شرح تعمیرات انجام‌شده",
-      },
-      TECHNICAL_FINAL_TEST: {
-        action: "FINAL_TEST",
-        title: "ثبت نتیجه تست نهایی",
-        placeholder: "نتیجه تست نهایی",
-      },
-      RECEPTION_DELIVERY: {
-        action: "DELIVER",
-        title: "ثبت تحویل دستگاه",
-        placeholder: "یادداشت تحویل دستگاه",
-      },
-    }[stage];
+  function renderTimings(items, order) {
+    if (!timedStages.has(order.current_stage)) return "";
+    const running = items.find(x => x.stage === order.current_stage && x.status === "RUNNING");
+    const user = currentUser();
+    const canControl = user.role === "ADMIN" || !order.current_user_id || Number(order.current_user_id) === Number(user.id);
+    return `<div class="card shadow-sm mt-4 border-primary"><div class="card-header bg-primary text-white"><i class="fas fa-stopwatch"></i> زمان‌سنج مرحله فنی</div><div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>مرحله فعال: <strong>${escapeHtml(stageLabels[order.current_stage])}</strong></div>
+        ${canControl ? `<button id="timingButton" class="btn ${running ? "btn-danger" : "btn-success"}" data-stage="${order.current_stage}">
+          <i class="fas fa-${running ? "stop" : "play"}"></i> ${running ? "پایان مرحله" : "شروع مرحله"}</button>` : ""}
+      </div>
+      <div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th>مرحله</th><th>تکنسین</th><th>شروع</th><th>پایان</th><th>مدت</th></tr></thead><tbody>
+        ${items.length ? items.map(x => `<tr><td>${escapeHtml(stageLabels[x.stage] || x.stage)}</td><td>${escapeHtml(x.user_name || "-")}</td><td>${clockDate(x.started_at)}</td><td>${clockDate(x.completed_at)}</td><td>${formatDuration(x.duration_seconds)}</td></tr>`).join("") : '<tr><td colspan="5" class="text-muted">هنوز زمان‌سنجی ثبت نشده است.</td></tr>'}
+      </tbody></table></div></div></div>`;
   }
 
-  async function renderWorkflow(order, history) {
-    const wrapper = document.getElementById("workflow-area");
-    if (!wrapper) return;
+  async function handleTiming(stage, running) {
+    const note = running ? (await Swal.fire({ title: "یادداشت پایان مرحله", input: "textarea", showCancelButton: true, confirmButtonText: "ثبت پایان", cancelButtonText: "انصراف" })).value : null;
+    if (running && note === undefined) return;
+    await api(`/api/workflow/orders/${orderId}/timing/${running ? "complete" : "start"}`, { method: "POST", body: JSON.stringify({ stage, note: note || null }) });
+    notify(running ? "پایان مرحله ثبت شد." : "شروع مرحله ثبت شد.");
+    await loadOrder();
+  }
 
-    const stages = await getJson("/api/workflow/stages");
-    const departments = {
-      RECEPTION: "پذیرش",
-      TECHNICAL: "فنی",
-      MANAGEMENT: "مدیریت",
-      CUSTOMER_RELATIONS: "ارتباط با مشتریان",
-    };
+  async function uploadStageFile() {
+    const input = document.getElementById("stageFile"), file = input?.files?.[0];
+    if (!file) return notify("یک فایل انتخاب کنید.", "warning");
+    const form = new FormData();
+    form.append("file", file);
+    form.append("stage", document.getElementById("fileStage").value);
+    form.append("description", document.getElementById("fileDescription").value.trim());
+    const response = await fetch(`/reception/repair-orders/${orderId}/upload`, { method: "POST", headers: { Authorization: `Bearer ${token()}` }, body: form });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || "آپلود انجام نشد");
+    notify("فایل مرحله‌ای ثبت شد.");
+    await loadOrder();
+  }
 
-    wrapper.innerHTML = `
-      <div class="card shadow-sm mt-4">
-        <div class="card-header bg-white">
-          <strong><i class="fas fa-route text-primary"></i> گردش پرونده</strong>
-        </div>
-        <div class="card-body">
-          <div class="small text-muted mb-3">
-            مرحله فعلی: <strong>${escapeHtml(order.current_stage || "-")}</strong>
-          </div>
-          <div id="workflow-action"></div>
-          <form id="transfer-form" class="row g-2 align-items-end mt-3">
-            <div class="col-md-4">
-              <label class="form-label">مرحله بعد</label>
-              <select class="form-select" id="workflow-stage" required>
-                <option value="">انتخاب مرحله</option>
-                ${stages
-                  .map(
-                    (item) =>
-                      `<option value="${item.code}" data-department="${item.department}">${escapeHtml(
-                        item.label
-                      )}</option>`
-                  )
-                  .join("")}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">بخش</label>
-              <input class="form-control" id="workflow-department" readonly>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">تکنسین/کاربر مقصد</label>
-              <select class="form-select" id="workflow-recipient" required>
-                <option value="">ابتدا مرحله را انتخاب کنید</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <button class="btn btn-primary w-100" type="submit">ارسال انتقال</button>
-            </div>
-            <div class="col-12">
-              <textarea class="form-control" id="workflow-note" rows="2" placeholder="توضیح انتقال (اختیاری)"></textarea>
-            </div>
-          </form>
-          <hr>
-          <h6>تاریخچه انتقال‌ها</h6>
-          <div>${renderWorkflowHistory(history)}</div>
-        </div>
-      </div>`;
-
-    const stageSelect = document.getElementById("workflow-stage");
-    const departmentInput = document.getElementById("workflow-department");
-    const recipientSelect = document.getElementById("workflow-recipient");
-    const actionContainer = document.getElementById("workflow-action");
-
-    const definition = actionDefinition(order.current_stage);
+  async function renderWorkflow(order) {
+    const stages = await api("/api/workflow/stages");
+    const holder = document.getElementById("workflow-area");
+    holder.innerHTML = `<div class="card shadow-sm mt-4"><div class="card-header"><strong><i class="fas fa-route"></i> گردش پرونده</strong></div><div class="card-body">
+      <div class="small text-muted mb-3">مرحله فعلی: <strong>${escapeHtml(stageLabels[order.current_stage] || order.current_stage || "-")}</strong></div>
+      <div id="workflow-action"></div>
+      <form id="transferForm" class="row g-2 align-items-end mt-3"><div class="col-md-4"><label class="form-label">مرحله بعد</label><select id="workflowStage" class="form-select" required><option value="">انتخاب مرحله</option>${stages.map(x => `<option value="${x.code}" data-department="${x.department}">${escapeHtml(x.label)}</option>`).join("")}</select></div>
+      <div class="col-md-3"><label class="form-label">گیرنده</label><select id="workflowRecipient" class="form-select" required><option value="">ابتدا مرحله را انتخاب کنید</option></select></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100">ارسال انتقال</button></div><div class="col-12"><textarea id="workflowNote" class="form-control" rows="2" placeholder="یادداشت انتقال (اختیاری)"></textarea></div></form>
+    </div></div>`;
+    const definition = {
+      TECHNICAL_DIAGNOSIS: ["DIAGNOSIS","ثبت نتیجه عیب‌یابی"],
+      MANAGEMENT_PRICING: ["PRICING","ثبت قیمت"],
+      CUSTOMER_APPROVAL: ["CUSTOMER_DECISION","ثبت نظر مشتری"],
+      TECHNICAL_REPAIR: ["REPAIR_COMPLETE","ثبت پایان تعمیر"],
+      TECHNICAL_FINAL_TEST: ["FINAL_TEST","ثبت تست نهایی"],
+      RECEPTION_DELIVERY: ["DELIVER","ثبت تحویل"]
+    }[order.current_stage];
     if (definition) {
-      const priceField =
-        definition.action === "PRICING"
-          ? '<input id="quoted-price" type="number" min="0" step="0.01" class="form-control mb-2" placeholder="مبلغ پیشنهادی">'
-          : "";
-      const approvalField =
-        definition.action === "CUSTOMER_DECISION"
-          ? `<div class="d-flex gap-2">
-               <button type="button" class="btn btn-success" data-approval="true">مشتری موافق است</button>
-               <button type="button" class="btn btn-outline-danger" data-approval="false">مشتری مخالف است</button>
-             </div>`
-          : '<button class="btn btn-outline-primary" type="submit">ثبت اقدام</button>';
-
-      actionContainer.innerHTML = `
-        <div class="border rounded p-3 bg-light">
-          <h6 class="text-primary">${definition.title}</h6>
-          <form id="action-form">
-            ${priceField}
-            <textarea id="action-notes" class="form-control mb-2" rows="2" placeholder="${definition.placeholder}"></textarea>
-            ${approvalField}
-          </form>
-        </div>`;
-
-      const submitAction = async (approved = null) => {
-        try {
-          const price = document.getElementById("quoted-price")?.value;
-          await postJson(`/api/workflow/orders/${order.id}/action`, {
-            action: definition.action,
-            notes: document.getElementById("action-notes")?.value.trim() || null,
-            quoted_price: price ? Number(price) : null,
-            approved,
-          });
-          message("اقدام workflow با موفقیت ثبت شد.");
-          await loadOrder();
-        } catch (error) {
-          message(error.message, "error");
-        }
+      document.getElementById("workflow-action").innerHTML = `<form id="actionForm" class="border rounded p-3 bg-light"><h6>${definition[1]}</h6>
+        ${definition[0] === "PRICING" ? '<input id="quotedPrice" type="number" min="0" step="0.01" class="form-control mb-2" placeholder="مبلغ پیشنهادی">' : ""}
+        <textarea id="actionNotes" class="form-control mb-2" rows="2" placeholder="توضیحات"></textarea>
+        ${definition[0] === "CUSTOMER_DECISION" ? '<button type="button" class="btn btn-success me-2" data-approved="true">موافق است</button><button type="button" class="btn btn-outline-danger" data-approved="false">مخالف است</button>' : '<button class="btn btn-outline-primary">ثبت اقدام</button>'}</form>`;
+      const submit = async approved => {
+        await api(`/api/workflow/orders/${orderId}/action`, { method: "POST", body: JSON.stringify({ action: definition[0], notes: document.getElementById("actionNotes").value.trim() || null, quoted_price: document.getElementById("quotedPrice")?.value ? Number(document.getElementById("quotedPrice").value) : null, approved }) });
+        notify("اقدام پرونده ثبت شد."); await loadOrder();
       };
-
-      document
-        .getElementById("action-form")
-        .addEventListener("submit", (event) => {
-          event.preventDefault();
-          submitAction();
-        });
-      actionContainer.querySelectorAll("[data-approval]").forEach((button) => {
-        button.addEventListener("click", () =>
-          submitAction(button.dataset.approval === "true")
-        );
-      });
+      document.getElementById("actionForm").addEventListener("submit", e => { e.preventDefault(); submit(null).catch(e => notify(e.message, "error")); });
+      document.querySelectorAll("[data-approved]").forEach(b => b.addEventListener("click", () => submit(b.dataset.approved === "true").catch(e => notify(e.message, "error"))));
     }
-
-    stageSelect.addEventListener("change", async () => {
-      const option = stageSelect.selectedOptions[0];
-      const department = option?.dataset.department || "";
-      departmentInput.value = departments[department] || department;
-      recipientSelect.innerHTML =
-        '<option value="">در حال بارگذاری کاربران...</option>';
-      if (!department) return;
-      try {
-        const users = await getJson(
-          `/api/panel/users/by-department/${encodeURIComponent(department)}`
-        );
-        recipientSelect.innerHTML =
-          '<option value="">انتخاب گیرنده</option>' +
-          users
-            .map(
-              (user) =>
-                `<option value="${user.id}">${escapeHtml(
-                  user.full_name
-                )} (${escapeHtml(user.username)})</option>`
-            )
-            .join("");
-      } catch (error) {
-        recipientSelect.innerHTML = '<option value="">کاربری پیدا نشد</option>';
-        message(error.message, "error");
-      }
+    document.getElementById("workflowStage").addEventListener("change", async e => {
+      const dept = e.target.selectedOptions[0]?.dataset.department, recipient = document.getElementById("workflowRecipient");
+      recipient.innerHTML = "<option>در حال بارگذاری...</option>";
+      if (!dept) return;
+      try { const users = await api(`/api/panel/users/by-department/${dept}`); recipient.innerHTML = '<option value="">انتخاب گیرنده</option>' + users.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`).join(""); }
+      catch (err) { recipient.innerHTML = "<option>کاربری پیدا نشد</option>"; notify(err.message, "error"); }
     });
-
-    document
-      .getElementById("transfer-form")
-      .addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const selected = stageSelect.selectedOptions[0];
-        try {
-          await postJson(`/api/workflow/orders/${order.id}/transfer`, {
-            to_user_id: Number(recipientSelect.value),
-            to_department: selected?.dataset.department || null,
-            stage: stageSelect.value,
-            note: document.getElementById("workflow-note").value.trim() || null,
-          });
-          message("درخواست انتقال ثبت شد و برای گیرنده اعلان ارسال گردید.");
-          await loadOrder();
-        } catch (error) {
-          message(error.message, "error");
-        }
-      });
+    document.getElementById("transferForm").addEventListener("submit", async e => {
+      e.preventDefault(); const select = document.getElementById("workflowStage");
+      try { await api(`/api/workflow/orders/${orderId}/transfer`, { method: "POST", body: JSON.stringify({ stage: select.value, to_department: select.selectedOptions[0]?.dataset.department, to_user_id: Number(document.getElementById("workflowRecipient").value), note: document.getElementById("workflowNote").value.trim() || null }) }); notify("درخواست انتقال ثبت شد."); await loadOrder(); }
+      catch (err) { notify(err.message, "error"); }
+    });
   }
 
-  function renderOrder(order, attachments, history) {
-    const container = document.getElementById("order-detail");
-    container.innerHTML = `
-      <div class="card shadow-sm border-0">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center">
-          <h4 class="mb-0">پرونده #${order.id}</h4>
-          ${statusBadge(order.status)}
-        </div>
-        <div class="card-body">
-          <div class="row g-3">
-            <div class="col-md-6"><div class="border rounded p-3"><strong>کد رهگیری:</strong><br><code>${escapeHtml(order.tracking_code)}</code></div></div>
-            <div class="col-md-6"><div class="border rounded p-3"><strong>مرحله فعلی:</strong><br>${escapeHtml(order.current_stage || "-")}</div></div>
-            <div class="col-md-6"><div class="border rounded p-3"><strong>مشتری:</strong><br>${escapeHtml(order.customer_name || "-")}<br>${escapeHtml(order.customer_phone || "-")}</div></div>
-            <div class="col-md-6"><div class="border rounded p-3"><strong>دستگاه:</strong><br>${escapeHtml(order.device_brand || "-")} ${escapeHtml(order.device_model || "")}<br>سریال: ${escapeHtml(order.device_serial_number || "-")}</div></div>
-            <div class="col-12"><div class="border rounded p-3"><strong>شرح مشکل:</strong><br>${escapeHtml(order.customer_complaint || "-")}</div></div>
-          </div>
-          <div class="mt-4"><h5>فایل‌های ضمیمه</h5>${renderAttachments(attachments)}</div>
-          <div id="workflow-area"></div>
-          <div class="mt-4 d-flex gap-2 flex-wrap">
-            <a class="btn btn-success" href="/reception/repair-orders/${order.id}/receipt" target="_blank"><i class="fas fa-print"></i> چاپ برگ پذیرش</a>
-            <a class="btn btn-secondary" href="/orders">بازگشت به پرونده‌ها</a>
-          </div>
-        </div>
-      </div>`;
+  function renderOrder(order, attachments, timings, timeline) {
+    document.getElementById("order-detail").innerHTML = `<div class="card shadow-sm border-0"><div class="card-header d-flex justify-content-between"><h4>پرونده #${order.id}</h4><span class="badge bg-primary">${escapeHtml(order.status || "-")}</span></div><div class="card-body">
+      <div class="row g-3"><div class="col-md-6"><div class="border rounded p-3"><strong>کد رهگیری:</strong><br><code>${escapeHtml(order.tracking_code)}</code></div></div><div class="col-md-6"><div class="border rounded p-3"><strong>مرحله فعلی:</strong><br>${escapeHtml(stageLabels[order.current_stage] || order.current_stage || "-")}</div></div>
+      <div class="col-md-6"><div class="border rounded p-3"><strong>مشتری:</strong><br>${escapeHtml(order.customer_name || "-")}<br>${escapeHtml(order.customer_phone || "-")}</div></div><div class="col-md-6"><div class="border rounded p-3"><strong>دستگاه:</strong><br>${escapeHtml(order.device_brand || "")} ${escapeHtml(order.device_model || "")}<br>سریال: ${escapeHtml(order.device_serial_number || "-")}</div></div></div>
+      ${renderTimings(timings, order)}
+      <div class="card mt-4"><div class="card-header">تصاویر مرحله‌ای</div><div class="card-body">${renderImages(attachments)}</div></div>
+      <div class="card mt-4"><div class="card-header">آپلود فایل مرحله‌ای</div><div class="card-body"><div class="row g-2 align-items-end"><div class="col-md-3"><label class="form-label">مرحله</label><select id="fileStage" class="form-select"><option value="RECEPTION">پذیرش</option><option value="REPAIR">تعمیر</option><option value="TEST">تست</option><option value="DELIVERY">تحویل</option><option value="GENERAL">عمومی</option></select></div><div class="col-md-3"><input id="stageFile" type="file" class="form-control"></div><div class="col-md-4"><input id="fileDescription" class="form-control" placeholder="توضیح فایل"></div><div class="col-md-2"><button id="uploadStageFile" class="btn btn-success w-100">آپلود</button></div></div><div class="mt-3">${renderAttachments(attachments)}</div></div></div>
+      <div id="workflow-area"></div>
+      <div class="card mt-4"><div class="card-header">تایم‌لاین تصویری پرونده</div><div class="card-body">${renderTimeline(timeline)}</div></div>
+      <div class="mt-4"><a class="btn btn-success" href="/reception/repair-orders/${order.id}/receipt" target="_blank">چاپ رسید پذیرش</a> <a class="btn btn-secondary" href="/orders">بازگشت به برد</a></div>
+    </div></div>`;
+    if (timedStages.has(order.current_stage)) document.getElementById("timingButton")?.addEventListener("click", () => handleTiming(order.current_stage, timings.some(x => x.stage === order.current_stage && x.status === "RUNNING")).catch(e => notify(e.message, "error")));
+    document.getElementById("uploadStageFile").addEventListener("click", () => uploadStageFile().catch(e => notify(e.message, "error")));
+    document.getElementById("fileStage").value = order.current_stage.includes("REPAIR") ? "REPAIR" : order.current_stage.includes("TEST") ? "TEST" : order.current_stage.includes("DELIVERY") ? "DELIVERY" : "RECEPTION";
   }
 
   async function loadOrder() {
-    if (!token()) {
-      window.location.href = "/login";
-      return;
-    }
-    if (!orderId || Number.isNaN(orderId)) {
-      document.getElementById("order-detail").innerHTML =
-        '<div class="alert alert-danger">شناسه پرونده معتبر نیست.</div>';
-      return;
-    }
-
+    if (!token()) return (location.href = "/login");
     try {
-      const [order, attachments, workflowHistory] = await Promise.all([
-        getJson(`/reception/repair-orders/${orderId}`),
-        getJson(`/reception/repair-orders/${orderId}/attachments`),
-        getJson(`/api/workflow/orders/${orderId}/history`),
+      await loadSessionUser();
+      const [order, attachments, timings, timeline] = await Promise.all([
+        api(`/reception/repair-orders/${orderId}`), api(`/reception/repair-orders/${orderId}/attachments`),
+        api(`/api/workflow/orders/${orderId}/timings`), api(`/api/workflow/orders/${orderId}/timeline`)
       ]);
-      renderOrder(order, attachments, workflowHistory);
-      await renderWorkflow(order, workflowHistory);
-    } catch (error) {
-      document.getElementById(
-        "order-detail"
-      ).innerHTML = `<div class="alert alert-danger">${escapeHtml(
-        error.message
-      )}</div>`;
-    }
+      renderOrder(order, attachments, timings, timeline);
+      await renderWorkflow(order);
+    } catch (e) { document.getElementById("order-detail").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`; }
   }
-
   document.addEventListener("DOMContentLoaded", loadOrder);
 })();

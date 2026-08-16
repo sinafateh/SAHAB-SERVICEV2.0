@@ -38,6 +38,13 @@ class WorkflowActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class TechnicalTimingRequest(BaseModel):
+    stage: str = Field(..., min_length=2, max_length=50)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkflowStageResponse(BaseModel):
     code: str
     label: str

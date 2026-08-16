@@ -8,8 +8,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.notification import Notification
+from app.models.case_timeline_event import CaseTimelineEvent
 from app.models.repair_order import OrderStatus, RepairOrder
 from app.models.status_history import StatusHistory
+from app.models.technical_stage_timing import TechnicalStageTiming
 from app.models.user import User
 from app.models.workflow_transition import WorkflowTransition
 
@@ -64,6 +66,12 @@ ROLE_DEPARTMENT = {
     "CUSTOMER_RELATIONS": "CUSTOMER_RELATIONS",
     "TECHNICAL": "TECHNICAL",
     "MANAGEMENT": "MANAGEMENT",
+}
+
+TECHNICAL_TIMED_STAGES = {
+    "TECHNICAL_DIAGNOSIS",
+    "TECHNICAL_REPAIR",
+    "TECHNICAL_FINAL_TEST",
 }
 
 
@@ -190,6 +198,30 @@ class WorkflowService:
         )
 
     @staticmethod
+    def add_timeline_event(
+        db: Session,
+        order: RepairOrder,
+        actor: Optional[User],
+        event_type: str,
+        title: str,
+        description: Optional[str] = None,
+        stage: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        db.add(
+            CaseTimelineEvent(
+                repair_order_id=order.id,
+                actor_id=actor.id if actor else None,
+                event_type=event_type,
+                title=title,
+                description=description,
+                stage=stage or order.current_stage,
+                metadata_json=metadata,
+                created_at=utc_now(),
+            )
+        )
+
+    @staticmethod
     def transfer_order(
         db: Session,
         order: RepairOrder,
@@ -227,6 +259,16 @@ class WorkflowService:
             f"پرونده {order.tracking_code} برای مرحله «{STAGES[stage]['label']}» به شما ارجاع شده است.",
             "WORKFLOW_TRANSFER",
             order.id,
+        )
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "TRANSFER_REQUESTED",
+            "درخواست انتقال پرونده",
+            f"پرونده برای مرحله «{STAGES[stage]['label']}» به {recipient.full_name} ارجاع شد.",
+            stage,
+            {"to_user_id": recipient.id, "to_user_name": recipient.full_name},
         )
         db.commit()
         db.refresh(transition)
@@ -293,6 +335,16 @@ class WorkflowService:
             "WORKFLOW_RECEIVED",
             order.id,
         )
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "TRANSFER_RECEIVED",
+            "دریافت پرونده",
+            f"{current_user.full_name} پرونده را برای مرحله «{config['label']}» دریافت کرد.",
+            transition.stage,
+            {"transition_id": transition.id},
+        )
         db.commit()
         db.refresh(transition)
         return transition
@@ -322,6 +374,17 @@ class WorkflowService:
             f"درخواست دریافت پرونده توسط {current_user.full_name} رد شد: {reason}",
             "WORKFLOW_REJECTED",
             transition.repair_order_id,
+        )
+        order = transition.repair_order
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "TRANSFER_REJECTED",
+            "رد دریافت پرونده",
+            reason,
+            transition.stage,
+            {"transition_id": transition.id},
         )
         db.commit()
         db.refresh(transition)
@@ -357,6 +420,17 @@ class WorkflowService:
             f"پرونده شماره {transition.repair_order_id} برای دریافت به شما واگذار شده است.",
             "WORKFLOW_TRANSFER",
             transition.repair_order_id,
+        )
+        order = transition.repair_order
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "RECIPIENT_CHANGED",
+            "تغییر گیرنده انتقال",
+            f"گیرنده پرونده به {recipient.full_name} تغییر کرد.",
+            transition.stage,
+            {"transition_id": transition.id, "to_user_id": recipient.id},
         )
         db.commit()
         db.refresh(transition)
@@ -427,6 +501,113 @@ class WorkflowService:
         else:
             raise HTTPException(status_code=400, detail="عملیات workflow معتبر نیست")
 
+        action_titles = {
+            "DIAGNOSIS": "ثبت عیب‌یابی فنی",
+            "PRICING": "ثبت قیمت پیشنهادی",
+            "CUSTOMER_DECISION": "ثبت تصمیم مشتری",
+            "REPAIR_COMPLETE": "ثبت پایان تعمیر",
+            "FINAL_TEST": "ثبت نتیجه تست نهایی",
+            "DELIVER": "ثبت تحویل دستگاه",
+        }
+        action_description = notes
+        if action == "PRICING" and quoted_price is not None:
+            action_description = f"مبلغ پیشنهادی: {quoted_price}"
+        elif action == "CUSTOMER_DECISION" and approved is not None:
+            action_description = "مشتری موافقت کرد." if approved else "مشتری با قیمت موافقت نکرد."
+        WorkflowService.add_timeline_event(
+            db, order, current_user, f"ACTION_{action}",
+            action_titles.get(action, "ثبت اقدام پرونده"),
+            action_description, order.current_stage,
+            {
+                "action": action,
+                "quoted_price": str(quoted_price) if quoted_price is not None else None,
+                "approved": approved,
+            },
+        )
         db.commit()
         db.refresh(order)
         return order
+
+    @staticmethod
+    def _ensure_timing_access(order: RepairOrder, current_user: User, stage: str) -> None:
+        if stage not in TECHNICAL_TIMED_STAGES:
+            raise HTTPException(status_code=400, detail="Technical timing is only available for technical stages.")
+        if order.current_stage != stage:
+            raise HTTPException(status_code=409, detail="This stage is not the active stage of the case.")
+        if WorkflowService.effective_department(current_user) != "TECHNICAL" and current_user.role != "ADMIN":
+            raise HTTPException(status_code=403, detail="Only technical users can record stage timing.")
+        if order.current_user_id and order.current_user_id != current_user.id and current_user.role != "ADMIN":
+            raise HTTPException(status_code=403, detail="This case belongs to another technician.")
+
+    @staticmethod
+    def start_timing(db: Session, order: RepairOrder, current_user: User, stage: str, note: Optional[str] = None) -> TechnicalStageTiming:
+        WorkflowService._ensure_timing_access(order, current_user, stage)
+        running = db.query(TechnicalStageTiming).filter(
+            TechnicalStageTiming.repair_order_id == order.id,
+            TechnicalStageTiming.stage == stage,
+            TechnicalStageTiming.status == "RUNNING",
+        ).first()
+        if running:
+            raise HTTPException(status_code=409, detail="An active timer already exists for this stage.")
+        timing = TechnicalStageTiming(
+            repair_order_id=order.id,
+            user_id=current_user.id,
+            stage=stage,
+            status="RUNNING",
+            started_at=utc_now(),
+            note=note,
+        )
+        db.add(timing)
+        db.flush()
+        WorkflowService.add_timeline_event(
+            db, order, current_user, "TIMING_STARTED",
+            "Technical stage timer started",
+            f"Timer started for {STAGES[stage]['label']}.",
+            stage, {"timing_id": timing.id},
+        )
+        db.commit()
+        db.refresh(timing)
+        return timing
+
+    @staticmethod
+    def complete_timing(db: Session, order: RepairOrder, current_user: User, stage: str, note: Optional[str] = None) -> TechnicalStageTiming:
+        WorkflowService._ensure_timing_access(order, current_user, stage)
+        query = db.query(TechnicalStageTiming).filter(
+            TechnicalStageTiming.repair_order_id == order.id,
+            TechnicalStageTiming.stage == stage,
+            TechnicalStageTiming.status == "RUNNING",
+        )
+        if current_user.role != "ADMIN":
+            query = query.filter(TechnicalStageTiming.user_id == current_user.id)
+        timing = query.order_by(TechnicalStageTiming.started_at.desc()).first()
+        if not timing:
+            raise HTTPException(status_code=409, detail="No active timer exists for this stage.")
+        completed_at = utc_now()
+        started_at = timing.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        timing.completed_at = completed_at
+        timing.duration_seconds = max(0, int((completed_at - started_at).total_seconds()))
+        timing.status = "COMPLETED"
+        if note:
+            timing.note = f"{timing.note}\n{note}" if timing.note else note
+        db.flush()
+        WorkflowService.add_timeline_event(
+            db, order, current_user, "TIMING_COMPLETED",
+            "Technical stage timer completed",
+            f"Duration: {timing.duration_seconds} seconds.",
+            stage, {"timing_id": timing.id, "duration_seconds": timing.duration_seconds},
+        )
+        db.commit()
+        db.refresh(timing)
+        return timing
+
+    @staticmethod
+    def get_timings(db: Session, repair_order_id: int) -> list[TechnicalStageTiming]:
+        return (
+            db.query(TechnicalStageTiming)
+            .options(joinedload(TechnicalStageTiming.user))
+            .filter(TechnicalStageTiming.repair_order_id == repair_order_id)
+            .order_by(TechnicalStageTiming.started_at.asc())
+            .all()
+        )

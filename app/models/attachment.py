@@ -13,6 +13,8 @@ class Attachment(Base):
     file_size = Column(Integer, nullable=True)
     mime_type = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
+    # دسته‌بندی مرحله‌ای تصاویر و فایل‌ها: RECEPTION, REPAIR, TEST, DELIVERY, GENERAL
+    stage = Column(String(30), nullable=False, default="GENERAL", server_default="GENERAL", index=True)
     
     # ✅ اضافه شدن فیلدهای جدید
     is_physical_damage = Column(Boolean, default=False)  # آیا عکس برای وضعیت ظاهری است

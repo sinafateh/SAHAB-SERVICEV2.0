@@ -84,6 +84,7 @@ if (loginForm) {
         localStorage.setItem("user_role", data.role);
       }
       localStorage.setItem("user", JSON.stringify({
+        id: data.id,
         username: data.username,
         full_name: data.full_name,
         role: data.role,

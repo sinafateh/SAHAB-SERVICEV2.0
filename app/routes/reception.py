@@ -887,11 +887,13 @@ async def upload_file(
     order_id: int,
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
+    stage: Optional[str] = Form("GENERAL"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_reception_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """آپلود فایل ضمیمه برای پرونده - نیاز به نقش پذیرش یا ادمین"""
     logger.info(f"آپلود فایل برای پرونده {order_id} توسط: {current_user.username}")
+    file_path = None
     
     try:
         order = db.query(RepairOrder).filter(RepairOrder.id == order_id).first()
@@ -901,6 +903,13 @@ async def upload_file(
                 detail="پرونده مورد نظر یافت نشد"
             )
         
+        allowed_stages = {"RECEPTION", "REPAIR", "TEST", "DELIVERY", "GENERAL"}
+        stage = (stage or "GENERAL").upper()
+        if stage not in allowed_stages:
+            raise HTTPException(status_code=400, detail="دسته‌بندی مرحله‌ای فایل معتبر نیست.")
+        if current_user.role != "ADMIN" and order.current_user_id not in {None, current_user.id}:
+            raise HTTPException(status_code=403, detail="این پرونده در اختیار شما نیست.")
+
         if file.size and file.size > settings.max_file_size:
             raise HTTPException(
                 status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -935,10 +944,23 @@ async def upload_file(
             file_size=file_size,
             mime_type=file.content_type,
             description=description,
+            stage=stage,
             repair_order_id=order_id,
             uploaded_by=current_user.id
         )
         db.add(attachment)
+        db.flush()
+        from app.services.workflow_service import WorkflowService
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "ATTACHMENT_UPLOADED",
+            "ثبت فایل مرحله‌ای",
+            description or file.filename,
+            order.current_stage,
+            {"stage": stage, "file_name": file.filename, "attachment_id": attachment.id},
+        )
         db.commit()
         db.refresh(attachment)
         
@@ -950,14 +972,15 @@ async def upload_file(
             "file_name": attachment.file_name,
             "file_path": attachment.file_path,
             "file_type": attachment.file_type,
-            "file_size": attachment.file_size
+            "file_size": attachment.file_size,
+            "stage": attachment.stage,
         }
     
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        if os.path.exists(file_path):
+        if file_path and os.path.exists(file_path):
             os.remove(file_path)
         logger.error(f"خطا در آپلود فایل: {e}")
         raise HTTPException(
@@ -1513,6 +1536,7 @@ async def create_repair_order_v2(
                         file_size=os.path.getsize(file_path),
                         mime_type=photo.content_type,
                         is_physical_damage=True,
+                        stage="RECEPTION",
                         repair_order_id=repair_order.id,
                         uploaded_by=current_user.id
                     )
@@ -1648,6 +1672,7 @@ async def create_repair_order_v2(
                         file_size=os.path.getsize(file_path),
                         mime_type=photo.content_type,
                         is_physical_damage=True,
+                        stage="RECEPTION",
                         repair_order_id=repair_order.id,
                         uploaded_by=current_user.id
                     )

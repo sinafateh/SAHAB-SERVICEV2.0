@@ -10,6 +10,8 @@ from app.models.panel import Panel
 from app.models.board import Board, BoardType
 from app.models.notification import Notification
 from app.models.workflow_transition import WorkflowTransition
+from app.models.technical_stage_timing import TechnicalStageTiming
+from app.models.case_timeline_event import CaseTimelineEvent
 
 __all__ = [
     'Base',
@@ -31,4 +33,6 @@ __all__ = [
     'BoardType',
     'Notification',
     'WorkflowTransition',
+    'TechnicalStageTiming',
+    'CaseTimelineEvent',
 ]

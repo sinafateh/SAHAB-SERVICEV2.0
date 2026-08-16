@@ -30,6 +30,7 @@ class TokenResponse(BaseModel):
     """پاسخ توکن"""
     access_token: str
     token_type: str = "bearer"
+    id: int
     username: str
     full_name: str
     role: str
@@ -142,6 +143,7 @@ def login(
     
     return TokenResponse(
         access_token=access_token,
+        id=user.id,
         username=user.username,
         full_name=user.full_name,
         role=user.role,

@@ -3,11 +3,15 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_active_user
 from app.database import get_db
 from app.models.repair_order import RepairOrder
+from app.models.attachment import Attachment
+from app.models.case_timeline_event import CaseTimelineEvent
+from app.models.technical_stage_timing import TechnicalStageTiming
+from app.models.status_history import StatusHistory
 from app.models.user import User
 from app.models.workflow_transition import WorkflowTransition
 from app.schemas.workflow import (
@@ -18,6 +22,7 @@ from app.schemas.workflow import (
     WorkflowTaskResponse,
     WorkflowTransferRequest,
     WorkflowTransitionResponse,
+    TechnicalTimingRequest,
 )
 from app.services.workflow_service import DEPARTMENTS, STAGES, WorkflowService
 
@@ -192,6 +197,248 @@ def get_order_history(
         .all()
     )
     return [transition_response(item) for item in transitions]
+
+
+def timing_response(item: TechnicalStageTiming) -> dict:
+    return {
+        "id": item.id,
+        "repair_order_id": item.repair_order_id,
+        "stage": item.stage,
+        "status": item.status,
+        "user_id": item.user_id,
+        "user_name": item.user.full_name if item.user else None,
+        "started_at": item.started_at,
+        "completed_at": item.completed_at,
+        "duration_seconds": item.duration_seconds,
+        "note": item.note,
+    }
+
+
+@router.post("/orders/{repair_order_id}/timing/start")
+def start_technical_timing(
+    repair_order_id: int,
+    payload: TechnicalTimingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    order = WorkflowService.get_order(db, repair_order_id)
+    return timing_response(
+        WorkflowService.start_timing(db, order, current_user, payload.stage, payload.note)
+    )
+
+
+@router.post("/orders/{repair_order_id}/timing/complete")
+def complete_technical_timing(
+    repair_order_id: int,
+    payload: TechnicalTimingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    order = WorkflowService.get_order(db, repair_order_id)
+    return timing_response(
+        WorkflowService.complete_timing(db, order, current_user, payload.stage, payload.note)
+    )
+
+
+@router.get("/orders/{repair_order_id}/timings")
+def get_technical_timings(
+    repair_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    WorkflowService.get_order(db, repair_order_id)
+    return [timing_response(item) for item in WorkflowService.get_timings(db, repair_order_id)]
+
+
+@router.get("/orders/{repair_order_id}/timeline")
+def get_case_timeline(
+    repair_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    order = WorkflowService.get_order(db, repair_order_id)
+    events = (
+        db.query(CaseTimelineEvent)
+        .options(joinedload(CaseTimelineEvent.actor))
+        .filter(CaseTimelineEvent.repair_order_id == repair_order_id)
+        .all()
+    )
+    transitions = (
+        db.query(WorkflowTransition)
+        .options(joinedload(WorkflowTransition.from_user), joinedload(WorkflowTransition.to_user))
+        .filter(WorkflowTransition.repair_order_id == repair_order_id)
+        .all()
+    )
+    attachments = (
+        db.query(Attachment)
+        .filter(Attachment.repair_order_id == repair_order_id)
+        .all()
+    )
+    status_history = (
+        db.query(StatusHistory)
+        .filter(StatusHistory.repair_order_id == repair_order_id)
+        .order_by(StatusHistory.changed_at.asc())
+        .all()
+    )
+    result = [
+        {
+            "id": f"event-{item.id}",
+            "event_type": item.event_type,
+            "title": item.title,
+            "description": item.description,
+            "stage": item.stage,
+            "actor_name": item.actor.full_name if item.actor else None,
+            "created_at": item.created_at,
+            "metadata": item.metadata_json,
+        }
+        for item in events
+    ]
+    existing_transition_ids = {
+        (item.metadata_json or {}).get("transition_id")
+        for item in events
+        if item.event_type.startswith("TRANSFER") or item.event_type == "RECIPIENT_CHANGED"
+    }
+    for item in transitions:
+        if item.id in existing_transition_ids:
+            continue
+        result.append(
+            {
+                "id": f"transition-{item.id}",
+                "event_type": "TRANSFER",
+                "title": "انتقال پرونده",
+                "description": f"{item.from_user.full_name if item.from_user else '-'} ← {item.to_user.full_name if item.to_user else '-'}",
+                "stage": item.stage,
+                "actor_name": item.from_user.full_name if item.from_user else None,
+                "created_at": item.created_at,
+                "metadata": {"transition_id": item.id, "status": item.status},
+            }
+        )
+    for item in attachments:
+        if item.id in {
+            (event.metadata_json or {}).get("attachment_id")
+            for event in events
+            if event.event_type == "ATTACHMENT_UPLOADED"
+        }:
+            continue
+        result.append(
+            {
+                "id": f"attachment-{item.id}",
+                "event_type": "ATTACHMENT",
+                "title": "ثبت فایل مرحله‌ای",
+                "description": item.file_name,
+                "stage": getattr(item, "stage", None),
+                "actor_name": None,
+                "created_at": item.uploaded_at,
+                "metadata": {"attachment_id": item.id, "file_path": item.file_path},
+            }
+        )
+    for item in status_history:
+        result.append(
+            {
+                "id": f"status-{item.id}",
+                "event_type": "STATUS_CHANGED",
+                "title": "تغییر وضعیت پرونده",
+                "description": item.note or item.reason,
+                "stage": None,
+                "actor_name": item.operator_name,
+                "created_at": item.changed_at,
+                "metadata": {
+                    "old_status": item.old_status.value if hasattr(item.old_status, "value") else item.old_status,
+                    "new_status": item.new_status.value if hasattr(item.new_status, "value") else item.new_status,
+                },
+            }
+        )
+    if not result:
+        result.append(
+            {
+                "id": "created",
+                "event_type": "CASE_CREATED",
+                "title": "ایجاد پرونده",
+                "description": f"پرونده {order.tracking_code} ایجاد شد.",
+                "stage": "RECEPTION_INTAKE",
+                "actor_name": order.operator_name,
+                "created_at": order.created_at or order.reception_date,
+                "metadata": {},
+            }
+        )
+    result.sort(
+        key=lambda item: (
+            item.get("created_at").timestamp()
+            if item.get("created_at") is not None
+            else 0
+        )
+    )
+    return result
+
+
+KANBAN_COLUMNS = [
+    ("RECEPTION_INTAKE", "پذیرش", "RECEPTION"),
+    ("TECHNICAL_DIAGNOSIS", "عیب یابی", "TECHNICAL"),
+    ("MANAGEMENT_PRICING", "برآورد قیمت", "MANAGEMENT"),
+    ("TECHNICAL_REPAIR", "تعمیر", "TECHNICAL"),
+    ("TECHNICAL_FINAL_TEST", "تست", "TECHNICAL"),
+    ("RECEPTION_DELIVERY", "آماده تحویل", "RECEPTION"),
+]
+
+
+@router.get("/kanban/board")
+def get_kanban_board(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    columns = [
+        {"stage": stage, "label": label, "department": department, "cards": []}
+        for stage, label, department in KANBAN_COLUMNS
+    ]
+    by_stage = {item["stage"]: item for item in columns}
+    stage_aliases = {"CUSTOMER_APPROVAL": "MANAGEMENT_PRICING"}
+    orders = (
+        db.query(RepairOrder)
+        .options(joinedload(RepairOrder.current_user), joinedload(RepairOrder.customer))
+        .filter(~RepairOrder.current_stage.in_(["COMPLETED", "CLOSED_NO_REPAIR"]))
+        .order_by(RepairOrder.created_at.asc())
+        .all()
+    )
+    for order in orders:
+        column = by_stage.get(stage_aliases.get(order.current_stage, order.current_stage)) or by_stage["RECEPTION_INTAKE"]
+        customer_name = None
+        if order.customer:
+            customer_name = " ".join(
+                part for part in [
+                    getattr(order.customer, "name", None),
+                    getattr(order.customer, "last_name", None),
+                ] if part
+            ) or getattr(order.customer, "company", None)
+        column["cards"].append(
+            {
+                "id": order.id,
+                "tracking_code": order.tracking_code,
+                "current_stage": order.current_stage,
+                "status": order.status.value if hasattr(order.status, "value") else order.status,
+                "current_user_id": order.current_user_id,
+                "current_user_name": order.current_user.full_name if order.current_user else None,
+                "customer_name": customer_name,
+                "device": f"{getattr(order.panel, 'brand', '') or ''} {getattr(order.panel, 'model', '') or ''}".strip(),
+                "created_at": order.created_at,
+            }
+        )
+    return {"columns": columns}
+
+
+@router.post("/kanban/orders/{repair_order_id}/move", response_model=WorkflowTransitionResponse, status_code=201)
+def move_kanban_card(
+    repair_order_id: int,
+    payload: WorkflowTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    order = WorkflowService.get_order(db, repair_order_id)
+    return transition_response(
+        WorkflowService.transfer_order(
+            db, order, current_user, payload.to_user_id, payload.stage,
+            payload.to_department, payload.note
+        )
+    )
 
 
 @router.post("/orders/{repair_order_id}/action")
