@@ -1,89 +1,287 @@
 <!doctype html>
 <html lang="fa" dir="rtl">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>پنل کاربری</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/style.css">
-  <style>
-    body { background: #f5f7fb; }
-    .sidebar { min-height: 100vh; background: #111827; }
-    .sidebar a { color: #d1d5db; text-decoration: none; display: block; padding: .9rem 1.1rem; }
-    .sidebar a:hover, .sidebar a.active { color: #fff; background: #1f2937; }
-    .card-soft { border: 0; border-radius: 16px; box-shadow: 0 8px 24px rgba(15,23,42,.06); }
-    .task-item { border-right: 4px solid #f59e0b; background: #fffbeb; border-radius: 10px; padding: 1rem; }
-    .notification-item { border-bottom: 1px solid #e5e7eb; padding: 1rem 0; }
-    .notification-item:last-child { border-bottom: 0; }
-    .notification-unread { background: #eff6ff; border-radius: 10px; padding: 1rem; }
-  </style>
-</head>
-<body>
-  <div class="container-fluid">
-    <div class="row">
-      <aside class="col-md-3 col-lg-2 px-0 sidebar text-white">
-        <div class="p-3 border-bottom border-secondary">
-          <strong><i class="fa-solid fa-screwdriver-wrench"></i> سامانه خدمات صحاب</strong>
-        </div>
-        <a href="/panel" class="active"><i class="fa-solid fa-user me-2"></i> پنل من</a>
-        <a href="/orders"><i class="fa-solid fa-folder-open me-2"></i> پرونده‌ها</a>
-        <a href="/dashboard" id="dashboardMenuItem"><i class="fa-solid fa-chart-line me-2"></i> داشبورد مدیریتی</a>
-        <a href="/users" id="usersMenuItem"><i class="fa-solid fa-users me-2"></i> کاربران</a>
-        <a href="#" id="logoutBtn"><i class="fa-solid fa-right-from-bracket me-2"></i> خروج</a>
-      </aside>
-      <main class="col-md-9 col-lg-10 p-4">
-        <div class="card card-soft mb-4">
-          <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <div>
-              <h4 class="mb-1">پنل کاربری من</h4>
-              <div class="text-muted">خوش آمدید، <strong id="fullNameText">در حال بارگذاری...</strong></div>
-            </div>
-            <span class="badge text-bg-primary" id="roleBadge">-</span>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>پنل کاربری</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <style>
+      body {
+        background: #f5f7fb;
+      }
+      .sidebar {
+        min-height: 100vh;
+        background: #111827;
+      }
+      .sidebar a {
+        color: #d1d5db;
+        text-decoration: none;
+        display: block;
+        padding: 0.9rem 1.1rem;
+      }
+      .sidebar a:hover,
+      .sidebar a.active {
+        color: #fff;
+        background: #1f2937;
+      }
+      .card-soft {
+        border: 0;
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      }
+      .case-item {
+        border-right: 4px solid #2563eb;
+        background: #f8fbff;
+        border-radius: 10px;
+        padding: 1rem;
+      }
+      .task-item,
+      #tasksList .case-item {
+        border-right-color: #f59e0b;
+        background: #fffbeb;
+      }
+      .notification-item {
+        border-bottom: 1px solid #e5e7eb;
+        padding: 1rem 0;
+      }
+      .notification-item:last-child {
+        border-bottom: 0;
+      }
+      .notification-unread {
+        background: #eff6ff;
+        border-radius: 10px;
+        padding: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid">
+      <div class="row">
+        <aside class="col-md-3 col-lg-2 px-0 sidebar text-white">
+          <div class="p-3 border-bottom border-secondary">
+            <strong
+              ><i class="fa-solid fa-screwdriver-wrench"></i> سامانه خدمات
+              صحاب</strong
+            >
           </div>
-        </div>
+          <a href="/panel" class="active"
+            ><i class="fa-solid fa-user me-2"></i> پنل من</a
+          >
+          <a href="/orders"
+            ><i class="fa-solid fa-folder-open me-2"></i> پرونده‌ها</a
+          >
+          <a href="/new-order"
+            ><i class="fa-solid fa-plus me-2"></i> پرونده جدید</a
+          >
+          <a href="/dashboard" id="dashboardMenuItem"
+            ><i class="fa-solid fa-chart-line me-2"></i> داشبورد مدیریتی</a
+          >
+          <a href="/users" id="usersMenuItem"
+            ><i class="fa-solid fa-users me-2"></i> کاربران</a
+          >
+          <a href="#" id="logoutBtn"
+            ><i class="fa-solid fa-right-from-bracket me-2"></i> خروج</a
+          >
+        </aside>
 
-        <div id="alertBox"></div>
+        <main class="col-md-9 col-lg-10 p-4">
+          <div class="card card-soft mb-4">
+            <div
+              class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2"
+            >
+              <div>
+                <h4 class="mb-1">پنل کاربری من</h4>
+                <div class="text-muted">
+                  خوش آمدید،
+                  <strong id="fullNameText">در حال بارگذاری...</strong>
+                </div>
+              </div>
+              <span class="badge text-bg-primary" id="roleBadge">-</span>
+            </div>
+          </div>
 
-        <div class="row g-3 mb-4">
-          <div class="col-md-4"><div class="card card-soft border-start border-primary border-4"><div class="card-body"><small class="text-muted">اعلان خوانده‌نشده</small><h2 id="unreadNotificationsCount">0</h2></div></div></div>
-          <div class="col-md-4"><div class="card card-soft border-start border-success border-4"><div class="card-body"><small class="text-muted">کل اعلان‌ها</small><h2 id="totalNotificationsCount">0</h2></div></div></div>
-          <div class="col-md-4"><div class="card card-soft border-start border-warning border-4"><div class="card-body"><small class="text-muted">وظایف فعال</small><h2 id="activeTasksCount">0</h2></div></div></div>
-        </div>
+          <div id="alertBox"></div>
 
-        <div class="row g-3 mb-4">
-          <div class="col-lg-5">
-            <div class="card card-soft h-100">
-              <div class="card-header bg-white"><strong>اطلاعات حساب</strong></div>
+          <div class="row g-3 mb-4">
+            <div class="col-6 col-lg-3">
+              <div class="card card-soft border-start border-primary border-4">
+                <div class="card-body">
+                  <small class="text-muted">اعلان خوانده‌نشده</small>
+                  <h2 id="unreadNotificationsCount">0</h2>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg-3">
+              <div class="card card-soft border-start border-success border-4">
+                <div class="card-body">
+                  <small class="text-muted">کل اعلان‌ها</small>
+                  <h2 id="totalNotificationsCount">0</h2>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg-3">
+              <div class="card card-soft border-start border-warning border-4">
+                <div class="card-body">
+                  <small class="text-muted">وظایف فعال</small>
+                  <h2 id="activeTasksCount">0</h2>
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-lg-3">
+              <div class="card card-soft border-start border-info border-4">
+                <div class="card-body">
+                  <small class="text-muted">پرونده‌های باز</small>
+                  <h2 id="openCasesCount">0</h2>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-4">
+            <div class="col-lg-5">
+              <div class="card card-soft h-100">
+                <div class="card-header bg-white">
+                  <strong>اطلاعات حساب</strong>
+                </div>
+                <div class="card-body">
+                  <table class="table table-sm align-middle mb-0">
+                    <tr>
+                      <th>نام کامل</th>
+                      <td id="profileFullName">-</td>
+                    </tr>
+                    <tr>
+                      <th>نام کاربری</th>
+                      <td id="profileUsername">-</td>
+                    </tr>
+                    <tr>
+                      <th>بخش</th>
+                      <td id="profileDepartment">-</td>
+                    </tr>
+                    <tr>
+                      <th>ایمیل</th>
+                      <td id="profileEmail">-</td>
+                    </tr>
+                    <tr>
+                      <th>تلفن</th>
+                      <td id="profilePhone">-</td>
+                    </tr>
+                    <tr>
+                      <th>وضعیت حساب</th>
+                      <td id="profileStatus">-</td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-7">
+              <div class="card card-soft h-100">
+                <div
+                  class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2"
+                >
+                  <strong>اعلان‌ها</strong>
+                  <div class="d-flex gap-1">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-success"
+                      id="markAllNotificationsBtn"
+                    >
+                      خواندن همه
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-danger"
+                      id="deleteAllNotificationsBtn"
+                    >
+                      حذف همه
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-primary"
+                      id="refreshNotificationsBtn"
+                    >
+                      به‌روزرسانی
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="notificationsList">
+                    <div class="text-muted text-center py-4">
+                      در حال بارگذاری...
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-soft mb-4">
+            <div
+              class="card-header bg-white d-flex justify-content-between align-items-center"
+            >
+              <strong
+                ><i class="fa-solid fa-inbox"></i> درخواست‌های دریافت</strong
+              >
+              <span class="badge text-bg-warning">در انتظار اقدام</span>
+            </div>
+            <div class="card-body">
+              <div id="tasksList">
+                <div class="text-muted text-center py-4">
+                  در حال بارگذاری...
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <div class="card card-soft">
+              <div class="card-header bg-white">
+                <strong
+                  ><i class="fa-solid fa-folder-open text-primary"></i>
+                  پرونده‌های باز
+                </strong>
+              </div>
               <div class="card-body">
-                <table class="table table-sm align-middle mb-0">
-                  <tr><th>نام کامل</th><td id="profileFullName">-</td></tr>
-                  <tr><th>نام کاربری</th><td id="profileUsername">-</td></tr>
-                  <tr><th>بخش</th><td id="profileDepartment">-</td></tr>
-                  <tr><th>ایمیل</th><td id="profileEmail">-</td></tr>
-                  <tr><th>تلفن</th><td id="profilePhone">-</td></tr>
-                  <tr><th>وضعیت</th><td id="profileStatus">-</td></tr>
-                </table>
+                <div id="openCasesList">
+                  <div class="text-muted text-center py-4">
+                    در حال بارگذاری...
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-          <div class="col-lg-7">
-            <div class="card card-soft h-100">
-              <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                <strong>اعلان‌ها</strong><button class="btn btn-sm btn-outline-primary" id="refreshNotificationsBtn">به‌روزرسانی</button>
-              </div>
-              <div class="card-body"><div id="notificationsList"><div class="text-muted text-center py-4">در حال بارگذاری...</div></div></div>
-            </div>
-          </div>
-        </div>
 
-        <div class="card card-soft">
-          <div class="card-header bg-white"><strong><i class="fa-solid fa-inbox"></i> درخواست‌های دریافت پرونده</strong></div>
-          <div class="card-body"><div id="tasksList"><div class="text-muted text-center py-4">در حال بارگذاری...</div></div></div>
-        </div>
-      </main>
+          <div class="card card-soft">
+            <div
+              class="card-header bg-white d-flex justify-content-between align-items-center"
+            >
+              <strong
+                ><i class="fa-solid fa-share-nodes text-success"></i> پرونده‌های
+                منتقل‌شده
+              </strong>
+              <span class="badge text-bg-success" id="transferredCasesCount"
+                >0</span
+              >
+            </div>
+            <div class="card-body">
+              <div id="transferredCasesList">
+                <div class="text-muted text-center py-4">
+                  در حال بارگذاری...
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
-  </div>
-  <script src="/static/js/panel.js"></script>
-</body>
+    <script src="/static/js/panel.js?v=20260816-2"></script>
+  </body>
 </html>

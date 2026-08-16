@@ -1,699 +1,379 @@
-// ============================================
-// صفحه جزئیات پرونده
-// ============================================
+(() => {
+  "use strict";
 
-console.log('✅ order_detail.js شروع به کار کرد');
+  const orderId =
+    Number(window.orderId) ||
+    Number(window.location.pathname.split("/").filter(Boolean).pop());
+  const token = () =>
+    localStorage.getItem("access_token") ||
+    localStorage.getItem("token") ||
+    "";
+  const headers = () => ({
+    Authorization: `Bearer ${token()}`,
+    "Content-Type": "application/json",
+  });
+  const escapeHtml = (value) =>
+    String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    }[char]));
+  const date = (value) =>
+    value ? new Date(value).toLocaleString("fa-IR") : "-";
 
-// ============================================
-// متغیرهای عمومی
-// ============================================
-var orderId = 0;
-
-// ============================================
-// توابع عمومی
-// ============================================
-
-function getStatusBadge(status) {
-    var colors = {
-        'ثبت شده': 'secondary',
-        'در انتظار بررسی فنی': 'warning',
-        'در حال عیب‌یابی': 'info',
-        'در انتظار تایید مشتری': 'primary',
-        'در حال تعمیر': 'warning',
-        'در حال تست': 'info',
-        'کنترل نهایی': 'secondary',
-        'آماده تحویل': 'success',
-        'تحویل شده': 'success',
-        'مختومه بدون تعمیر': 'danger'
-    };
-    return '<span class="badge bg-' + (colors[status] || 'secondary') + ' status-badge fs-6">' + status + '</span>';
-}
-
-function formatDate(dateString) {
-    if (!dateString) return '-';
-    try {
-        var date = new Date(dateString);
-        return date.toLocaleDateString('fa-IR', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    } catch (e) {
-        return dateString;
+  async function getJson(url) {
+    const response = await fetch(url, { headers: headers() });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(body.detail || "خطا در دریافت اطلاعات");
     }
-}
+    return body;
+  }
 
-function formatFileSize(bytes) {
-    if (!bytes) return '0 KB';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-}
-
-// ============================================
-// تابع تغییر وضعیت
-// ============================================
-function changeStatus(newStatus, reason) {
-    reason = reason || '';
-
-    var statusMap = {
-        'ثبت شده': 'REGISTERED',
-        'در انتظار بررسی فنی': 'WAITING_TECHNICAL',
-        'در حال عیب‌یابی': 'DIAGNOSING',
-        'در انتظار تایید مشتری': 'WAITING_APPROVAL',
-        'در حال تعمیر': 'REPAIRING',
-        'در حال تست': 'TESTING',
-        'کنترل نهایی': 'FINAL_CONTROL',
-        'آماده تحویل': 'READY_DELIVERY',
-        'تحویل شده': 'DELIVERED',
-        'مختومه بدون تعمیر': 'CLOSED_NO_REPAIR'
-    };
-
-    var englishStatus = statusMap[newStatus];
-    if (!englishStatus) {
-        showError('وضعیت نامعتبر است');
-        return;
-    }
-
-    if (!reason) {
-        Swal.fire({
-            title: 'توضیح تغییر وضعیت',
-            text: 'لطفاً دلیل تغییر وضعیت را وارد کنید:',
-            input: 'text',
-            inputPlaceholder: 'دلیل تغییر وضعیت...',
-            showCancelButton: true,
-            confirmButtonColor: '#0d6efd',
-            cancelButtonColor: '#dc3545',
-            confirmButtonText: 'تایید',
-            cancelButtonText: 'انصراف',
-            inputValidator: function(value) {
-                if (!value || value.trim().length < 3) {
-                    return 'لطفاً حداقل ۳ کاراکتر وارد کنید';
-                }
-                return null;
-            }
-        }).then(function(result) {
-            if (result.isConfirmed && result.value) {
-                changeStatusWithReason(newStatus, englishStatus, result.value.trim());
-            }
-        });
-    } else {
-        changeStatusWithReason(newStatus, englishStatus, reason);
-    }
-}
-
-function changeStatusWithReason(newStatus, englishStatus, reason) {
-    Swal.fire({
-        title: 'تغییر وضعیت',
-        html: 'آیا از تغییر وضعیت به "<strong>' + newStatus + '</strong>" مطمئن هستید؟',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonColor: '#0d6efd',
-        cancelButtonColor: '#dc3545',
-        confirmButtonText: 'بله، تغییر کن',
-        cancelButtonText: 'انصراف'
-    }).then(function(result) {
-        if (result.isConfirmed) {
-            var token = localStorage.getItem('access_token');
-
-            Swal.fire({
-                title: 'در حال تغییر وضعیت...',
-                allowOutsideClick: false,
-                showConfirmButton: false,
-                willOpen: function() {
-                    Swal.showLoading();
-                }
-            });
-
-            fetch('/reception/repair-orders/' + orderId + '/status', {
-                method: 'PUT',
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    status: newStatus,
-                    reason: reason
-                })
-            })
-            .then(function(response) {
-                if (!response.ok) {
-                    return response.json().then(function(err) {
-                        throw new Error(err.detail || 'خطا در تغییر وضعیت');
-                    });
-                }
-                return response.json();
-            })
-            .then(function(data) {
-                Swal.close();
-                showSuccess('وضعیت با موفقیت تغییر کرد');
-                console.log('✅ وضعیت تغییر کرد:', data);
-                loadOrder();
-            })
-            .catch(function(error) {
-                Swal.close();
-                showError(error.message || 'خطا در تغییر وضعیت');
-            });
-        }
+  async function postJson(url, payload) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(payload),
     });
-}
-
-// ============================================
-// تابع بارگذاری پرونده
-// ============================================
-function loadOrder() {
-    console.log('🔄 loadOrder اجرا شد - orderId:', orderId);
-
-    if (!orderId || isNaN(orderId)) {
-        $('#order-detail').html(
-            '<div class="alert alert-danger">' +
-                '<h4><i class="fas fa-exclamation-triangle"></i> شناسه نامعتبر</h4>' +
-                '<p>شناسه پرونده وارد شده معتبر نیست.</p>' +
-                '<a href="/orders" class="btn btn-primary mt-2">بازگشت به لیست</a>' +
-            '</div>'
-        );
-        return;
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(body.detail || "عملیات انجام نشد");
     }
+    return body;
+  }
 
-    $('#order-detail').html(
-        '<div class="text-center text-muted py-5">' +
-            '<i class="fas fa-spinner fa-spin fa-3x"></i>' +
-            '<p class="mt-3">در حال بارگذاری...</p>' +
-        '</div>'
-    );
+  function message(text, type = "success") {
+    if (typeof window.Swal !== "undefined") {
+      window.Swal.fire({
+        icon: type,
+        text,
+        timer: type === "success" ? 2200 : undefined,
+        showConfirmButton: type !== "success",
+      });
+    } else {
+      window.alert(text);
+    }
+  }
 
-    var token = localStorage.getItem('access_token');
-
-    fetch('/reception/repair-orders/' + orderId, {
-        headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json'
-        }
-    })
-    .then(function(response) {
-        if (!response.ok) {
-            throw new Error('خطا در دریافت اطلاعات: ' + response.status);
-        }
-        return response.json();
-    })
-    .then(function(order) {
-        console.log('📋 اطلاعات پرونده:', order);
-
-        return Promise.all([
-            Promise.resolve(order),
-            fetch('/reception/repair-orders/' + orderId + '/history', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            }).then(function(r) { return r.ok ? r.json() : []; }),
-            fetch('/reception/repair-orders/' + orderId + '/attachments', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            }).then(function(r) { return r.ok ? r.json() : []; }),
-            fetch('/api/workflow/orders/' + orderId + '/history', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            }).then(function(r) { return r.ok ? r.json() : []; })
-        ]);
-    })
-    .then(function(data) {
-        var order = data[0];
-        var history = data[1] || [];
-        var attachments = data[2] || [];
-        var workflowHistory = data[3] || [];
-        renderOrder(order, history, attachments, workflowHistory);
-    })
-    .catch(function(error) {
-        console.error('❌ خطا:', error);
-        $('#order-detail').html(
-            '<div class="alert alert-danger">' +
-                '<h4><i class="fas fa-exclamation-triangle"></i> خطا در بارگذاری</h4>' +
-                '<p>' + error.message + '</p>' +
-                '<a href="/orders" class="btn btn-primary mt-2">بازگشت به لیست</a>' +
-            '</div>'
-        );
-    });
-}
-
-// ============================================
-// تابع رندر پرونده
-// ============================================
-function renderOrder(order, history, attachments, workflowHistory) {
-    console.log('🎨 رندرینگ پرونده:', order.tracking_code);
-    console.log('📋 order.id:', order.id);
-
-    var user = getUser();
-    var isTechnical = user && (user.role === 'ADMIN' || user.role === 'TECHNICAL');
-
-    var statusColors = {
-        'ثبت شده': 'secondary',
-        'در انتظار بررسی فنی': 'warning',
-        'در حال عیب‌یابی': 'info',
-        'در انتظار تایید مشتری': 'primary',
-        'در حال تعمیر': 'warning',
-        'در حال تست': 'info',
-        'کنترل نهایی': 'secondary',
-        'آماده تحویل': 'success',
-        'تحویل شده': 'success',
-        'مختومه بدون تعمیر': 'danger'
+  function statusBadge(status) {
+    const colors = {
+      "ثبت شده": "secondary",
+      "در حال عیب‌یابی": "info",
+      "در انتظار تایید مشتری": "primary",
+      "در حال تعمیر": "warning",
+      "کنترل نهایی": "secondary",
+      "آماده تحویل": "success",
+      "تحویل شده": "success",
+      "مختومه بدون تعمیر": "danger",
     };
+    return `<span class="badge bg-${colors[status] || "secondary"}">${escapeHtml(
+      status || "-"
+    )}</span>`;
+  }
 
-    // ============================================
-    // دکمه‌های تغییر وضعیت
-    // ============================================
-    var actionButtons = '';
-
-    if (isTechnical) {
-        var status = order.status;
-
-        if (status === 'ثبت شده') {
-            actionButtons = `
-                <button class="btn btn-warning" onclick="changeStatus('در انتظار بررسی فنی')">
-                    <i class="fas fa-tools"></i> تحویل به واحد فنی
-                </button>
-            `;
-        } else if (status === 'در انتظار بررسی فنی') {
-            actionButtons = `
-                <button class="btn btn-info" onclick="changeStatus('در حال عیب‌یابی')">
-                    <i class="fas fa-search"></i> شروع عیب‌یابی
-                </button>
-            `;
-        } else if (status === 'در حال عیب‌یابی') {
-            actionButtons = `
-                <button class="btn btn-primary" onclick="changeStatus('در انتظار تایید مشتری')">
-                    <i class="fas fa-clock"></i> اعلام هزینه
-                </button>
-            `;
-        } else if (status === 'در انتظار تایید مشتری') {
-            actionButtons = `
-                <button class="btn btn-success" onclick="changeStatus('در حال تعمیر')">
-                    <i class="fas fa-wrench"></i> شروع تعمیر
-                </button>
-                <button class="btn btn-danger" onclick="changeStatus('مختومه بدون تعمیر', 'عدم تایید مشتری')">
-                    <i class="fas fa-times"></i> عدم تایید مشتری
-                </button>
-            `;
-        } else if (status === 'در حال تعمیر') {
-            actionButtons = `
-                <button class="btn btn-info" onclick="changeStatus('در حال تست')">
-                    <i class="fas fa-check-circle"></i> اتمام تعمیر - شروع تست
-                </button>
-            `;
-        } else if (status === 'در حال تست') {
-            actionButtons = `
-                <button class="btn btn-secondary" onclick="changeStatus('کنترل نهایی')">
-                    <i class="fas fa-clipboard-check"></i> تایید تست - کنترل نهایی
-                </button>
-            `;
-        } else if (status === 'کنترل نهایی') {
-            actionButtons = `
-                <button class="btn btn-success" onclick="changeStatus('آماده تحویل')">
-                    <i class="fas fa-check-double"></i> تایید نهایی - آماده تحویل
-                </button>
-            `;
-        } else if (status === 'آماده تحویل') {
-            actionButtons = `
-                <button class="btn btn-success" onclick="changeStatus('تحویل شده')">
-                    <i class="fas fa-handshake"></i> تحویل به مشتری
-                </button>
-            `;
-        }
-    } else {
-        actionButtons = `
-            <span class="text-muted">
-                <i class="fas fa-info-circle"></i>
-                شما دسترسی تغییر وضعیت ندارید
-            </span>
-        `;
+  function renderAttachments(items) {
+    if (!items?.length) {
+      return '<p class="text-muted mb-0">فایلی برای این پرونده ثبت نشده است.</p>';
     }
+    return `<div class="row g-2">${items
+      .map(
+        (item) => `
+        <div class="col-md-4">
+          <div class="border rounded p-2 h-100">
+            <div class="small text-truncate">${escapeHtml(item.file_name)}</div>
+            <a class="btn btn-sm btn-outline-primary mt-2" href="${escapeHtml(
+              item.file_path
+            )}" target="_blank">مشاهده فایل</a>
+          </div>
+        </div>`
+      )
+      .join("")}</div>`;
+  }
 
-    // ============================================
-    // تاریخچه تغییرات
-    // ============================================
-    var historyHtml = '';
-    if (history && history.length > 0) {
-        historyHtml = '<div class="mt-4"><h5><i class="fas fa-history text-primary"></i> تاریخچه تغییرات</h5><div class="ps-3">';
-        for (var i = 0; i < history.length; i++) {
-            var item = history[i];
-            var date = formatDate(item.changed_at);
-            var oldStatus = item.old_status || 'ثبت شده';
-            var newStatus = item.new_status || 'نامشخص';
-            var operatorName = item.operator_name || 'سیستم';
-
-            historyHtml +=
-                '<div class="mb-3 pb-3 border-bottom">' +
-                    '<div class="d-flex justify-content-between align-items-center">' +
-                        '<div>' +
-                            '<span class="badge bg-secondary">' + oldStatus + '</span>' +
-                            '<i class="fas fa-arrow-left mx-2 text-muted"></i>' +
-                            '<span class="badge bg-' + (statusColors[newStatus] || 'secondary') + '">' + newStatus + '</span>' +
-                        '</div>' +
-                        '<small class="text-muted">' + date + '</small>' +
-                    '</div>' +
-                    '<div class="text-muted small mt-1">' +
-                        '<i class="fas fa-quote-right"></i> ' + (item.reason || 'تغییر وضعیت') +
-                        '<span class="badge bg-light text-dark ms-2">' +
-                            '<i class="fas fa-user"></i> ' + operatorName +
-                        '</span>' +
-                    '</div>' +
-                '</div>';
-        }
-        historyHtml += '</div></div>';
-    } else {
-        historyHtml =
-            '<div class="mt-4">' +
-                '<h5><i class="fas fa-history text-muted"></i> تاریخچه تغییرات</h5>' +
-                '<p class="text-muted">تاریخچه‌ای ثبت نشده است</p>' +
-            '</div>';
+  function renderWorkflowHistory(items) {
+    if (!items?.length) {
+      return '<p class="text-muted mb-0">هنوز انتقالی برای این پرونده ثبت نشده است.</p>';
     }
+    return items
+      .map(
+        (item) => `
+        <div class="border-bottom py-2">
+          <div><strong>${escapeHtml(item.from_user_name || "-")}</strong>
+          <i class="fas fa-arrow-left mx-2"></i>
+          <strong>${escapeHtml(item.to_user_name || "-")}</strong></div>
+          <div class="small text-muted">
+            مرحله: ${escapeHtml(item.stage || "-")} |
+            وضعیت انتقال: ${escapeHtml(item.status || "-")} |
+            ${date(item.created_at)}
+          </div>
+          ${
+            item.rejection_reason
+              ? `<div class="small text-danger">دلیل رد: ${escapeHtml(
+                  item.rejection_reason
+                )}</div>`
+              : ""
+          }
+        </div>`
+      )
+      .join("");
+  }
 
-    // ============================================
-    // فایل‌های ضمیمه
-    // ============================================
-    var attachmentsHtml = '';
-    if (attachments && attachments.length > 0) {
-        attachmentsHtml = '<div class="mt-4"><h5><i class="fas fa-paperclip text-primary"></i> فایل‌های ضمیمه</h5><div class="row g-3 mt-2">';
-        for (var j = 0; j < attachments.length; j++) {
-            var att = attachments[j];
-            var icon = att.file_type === 'photo' ? 'fa-image' :
-                       att.file_type === 'pdf' ? 'fa-file-pdf' :
-                       att.file_type === 'video' ? 'fa-video' : 'fa-file';
-            var color = att.file_type === 'photo' ? 'primary' :
-                        att.file_type === 'pdf' ? 'danger' :
-                        att.file_type === 'video' ? 'warning' : 'secondary';
+  function actionDefinition(stage) {
+    return {
+      TECHNICAL_DIAGNOSIS: {
+        action: "DIAGNOSIS",
+        title: "ثبت نتیجه عیب‌یابی",
+        placeholder: "شرح عیب و نتیجه بررسی فنی",
+      },
+      MANAGEMENT_PRICING: {
+        action: "PRICING",
+        title: "ثبت قیمت پیشنهادی",
+        placeholder: "توضیحات مربوط به قیمت‌گذاری",
+      },
+      CUSTOMER_APPROVAL: {
+        action: "CUSTOMER_DECISION",
+        title: "ثبت نظر مشتری",
+        placeholder: "توضیح تماس و تصمیم مشتری",
+      },
+      TECHNICAL_REPAIR: {
+        action: "REPAIR_COMPLETE",
+        title: "ثبت پایان تعمیر",
+        placeholder: "شرح تعمیرات انجام‌شده",
+      },
+      TECHNICAL_FINAL_TEST: {
+        action: "FINAL_TEST",
+        title: "ثبت نتیجه تست نهایی",
+        placeholder: "نتیجه تست نهایی",
+      },
+      RECEPTION_DELIVERY: {
+        action: "DELIVER",
+        title: "ثبت تحویل دستگاه",
+        placeholder: "یادداشت تحویل دستگاه",
+      },
+    }[stage];
+  }
 
-            attachmentsHtml +=
-                '<div class="col-md-3 col-sm-6">' +
-                    '<div class="card attachment-card h-100 text-center p-3">' +
-                        '<i class="fas ' + icon + ' fa-3x text-' + color + ' mb-2"></i>' +
-                        '<p class="small text-truncate fw-bold">' + att.file_name + '</p>' +
-                        '<p class="small text-muted">' + formatFileSize(att.file_size) + '</p>' +
-                        '<a href="' + att.file_path + '" target="_blank" class="btn btn-sm btn-outline-primary">' +
-                            '<i class="fas fa-download"></i> دانلود' +
-                        '</a>' +
-                    '</div>' +
-                '</div>';
-        }
-        attachmentsHtml += '</div></div>';
-    } else {
-        attachmentsHtml =
-            '<div class="mt-4">' +
-                '<h5><i class="fas fa-paperclip text-muted"></i> فایل‌های ضمیمه</h5>' +
-                '<p class="text-muted">هیچ فایلی آپلود نشده است</p>' +
-            '</div>';
-    }
-
-    // ============================================
-    // ✅ دکمه چاپ برگه پذیرش - هم اندازه با سایر دکمه‌ها
-    // ============================================
-    var printButton = `
-        <a href="/reception/repair-orders/${order.id}/receipt" target="_blank" class="btn btn-success">
-            <i class="fas fa-print"></i> چاپ برگه پذیرش
-        </a>
-    `;
-
-    // ============================================
-    // HTML نهایی
-    // ============================================
-    var html =
-        '<div class="card shadow-lg border-0">' +
-            '<div class="card-header bg-white d-flex justify-content-between align-items-center py-3">' +
-                '<h4 class="mb-0"><i class="fas fa-file-alt text-primary"></i> پرونده #' + order.id + '</h4>' +
-                '<div>' + getStatusBadge(order.status) + '</div>' +
-            '</div>' +
-            '<div class="card-body">' +
-                '<div class="row g-4">' +
-                    '<div class="col-md-6">' +
-                        '<div class="card bg-light"><div class="card-body">' +
-                            '<h6 class="text-primary"><i class="fas fa-tag"></i> کد رهگیری</h6>' +
-                            '<p><code class="fs-5">' + order.tracking_code + '</code></p>' +
-                        '</div></div>' +
-                    '</div>' +
-                    '<div class="col-md-6">' +
-                        '<div class="card bg-light"><div class="card-body">' +
-                            '<h6 class="text-primary"><i class="fas fa-calendar"></i> تاریخ ثبت</h6>' +
-                            '<p>' + formatDate(order.created_at) + '</p>' +
-                        '</div></div>' +
-                    '</div>' +
-                    '<div class="col-md-6">' +
-                        '<div class="card bg-light"><div class="card-body">' +
-                            '<h6 class="text-primary"><i class="fas fa-user"></i> اطلاعات مشتری</h6>' +
-                            '<p><strong>نام:</strong> ' + (order.customer_name || '-') + '</p>' +
-                            '<p><strong>شرکت:</strong> ' + (order.customer_company || '-') + '</p>' +
-                            '<p><strong>تلفن:</strong> ' + (order.customer_phone || '-') + '</p>' +
-                            '<p><strong>آدرس:</strong> ' + (order.customer_address || '-') + '</p>' +
-                        '</div></div>' +
-                    '</div>' +
-                    '<div class="col-md-6">' +
-                        '<div class="card bg-light"><div class="card-body">' +
-                            '<h6 class="text-primary"><i class="fas fa-microchip"></i> اطلاعات دستگاه</h6>' +
-                            '<p><strong>برند:</strong> ' + (order.device_brand || '-') + '</p>' +
-                            '<p><strong>مدل:</strong> ' + (order.device_model || '-') + '</p>' +
-                            '<p><strong>پارت نامبر:</strong> ' + (order.device_part_number || '-') + '</p>' +
-                            '<p><strong>سریال نامبر:</strong> ' + (order.device_serial_number || '-') + '</p>' +
-                        '</div></div>' +
-                    '</div>' +
-                    '<div class="col-12">' +
-                        '<div class="card bg-light"><div class="card-body">' +
-                            '<h6 class="text-primary"><i class="fas fa-exclamation-triangle"></i> شرح مشکل</h6>' +
-                            '<p class="mb-0">' + (order.customer_complaint || 'ثبت نشده') + '</p>' +
-                        '</div></div>' +
-                    '</div>' +
-                    '<div class="col-12">' +
-                        '<div class="card bg-light"><div class="card-body">' +
-                            '<h6 class="text-primary"><i class="fas fa-sticky-note"></i> یادداشت‌ها</h6>' +
-                            '<p class="mb-0">' + (order.notes || 'ثبت نشده') + '</p>' +
-                        '</div></div>' +
-                    '</div>' +
-                '</div>' +
-                historyHtml +
-                attachmentsHtml +
-                '<hr class="my-4">' +
-                '<div class="d-flex gap-2 flex-wrap align-items-center">' +
-                    actionButtons +
-                    printButton +
-                    '<a href="/orders" class="btn btn-secondary">' +
-                        '<i class="fas fa-arrow-right"></i> بازگشت' +
-                    '</a>' +
-                '</div>' +
-            '</div>' +
-        '</div>';
-
-    console.log('✅ HTML ساخته شد، دکمه چاپ اضافه شد');
-    
-    $('#order-detail').html(html);
-    renderWorkflowControls(order, workflowHistory || []);
-    
-    // بررسی وجود دکمه در DOM
-    var checkBtn = document.querySelector('a[href*="receipt"]');
-    console.log('🔍 دکمه در DOM:', checkBtn ? '✅ پیدا شد' : '❌ پیدا نشد');
-}
-
-function workflowHeaders() {
-    var token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
-    return { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
-}
-
-function renderWorkflowControls(order, workflowHistory) {
-    var wrapper = document.querySelector('#order-detail .card-body');
+  async function renderWorkflow(order, history) {
+    const wrapper = document.getElementById("workflow-area");
     if (!wrapper) return;
 
-    var historyHtml = (workflowHistory || []).length
-        ? workflowHistory.map(function(item) {
-            return '<div class="border-bottom py-2">' +
-                '<strong>' + (item.from_user_name || '-') + '</strong> <i class="fas fa-arrow-left mx-1"></i> ' +
-                '<strong>' + (item.to_user_name || '-') + '</strong>' +
-                '<div class="small text-muted">مرحله: ' + (item.stage || '-') + ' | وضعیت: ' + (item.status || '-') +
-                ' | ' + formatDate(item.created_at) + '</div>' +
-                (item.rejection_reason ? '<div class="text-danger small">دلیل رد: ' + item.rejection_reason + '</div>' : '') +
-                '</div>';
-        }).join('')
-        : '<div class="text-muted">هنوز انتقالی برای این پرونده ثبت نشده است.</div>';
-
-    var card = document.createElement('div');
-    card.className = 'card bg-light mt-4';
-    card.innerHTML =
-        '<div class="card-body">' +
-        '<h5 class="text-primary"><i class="fas fa-route"></i> گردش پرونده</h5>' +
-        '<div class="small mb-3">مرحله فعلی: <strong>' + (order.current_stage || 'RECEPTION_INTAKE') +
-        '</strong> | مسئول فعلی: <strong>' + (order.current_user_id || 'ثبت نشده') + '</strong></div>' +
-        '<div id="workflowActionArea" class="mb-3"></div>' +
-        '<form id="orderWorkflowForm" class="row g-2 align-items-end">' +
-        '<div class="col-md-4"><label class="form-label">مرحله بعد</label><select class="form-select" id="workflowStage" required><option value="">انتخاب کنید</option></select></div>' +
-        '<div class="col-md-3"><label class="form-label">بخش</label><input class="form-control" id="workflowDepartment" readonly></div>' +
-        '<div class="col-md-3"><label class="form-label">گیرنده</label><select class="form-select" id="workflowRecipient" required><option value="">ابتدا مرحله را انتخاب کنید</option></select></div>' +
-        '<div class="col-md-2"><button class="btn btn-primary w-100" type="submit">ارسال انتقال</button></div>' +
-        '<div class="col-12"><textarea class="form-control" id="workflowNote" rows="2" placeholder="توضیح انتقال (اختیاری)"></textarea></div>' +
-        '</form>' +
-        '<hr><h6>تاریخچه انتقال‌ها</h6><div>' + historyHtml + '</div>' +
-        '</div>';
-    wrapper.appendChild(card);
-
-    var stageSelect = card.querySelector('#workflowStage');
-    var deptInput = card.querySelector('#workflowDepartment');
-    var recipientSelect = card.querySelector('#workflowRecipient');
-    var departmentLabels = { RECEPTION: 'پذیرش', TECHNICAL: 'فنی', MANAGEMENT: 'مدیریت', CUSTOMER_RELATIONS: 'ارتباط با مشتریان' };
-    var stages = [];
-    renderWorkflowAction(order, card.querySelector('#workflowActionArea'));
-
-    fetch('/api/workflow/stages', { headers: workflowHeaders() })
-        .then(function(response) { return response.json(); })
-        .then(function(items) {
-            stages = items || [];
-            stages.forEach(function(item) {
-                var option = document.createElement('option');
-                option.value = item.code;
-                option.textContent = item.label;
-                option.dataset.department = item.department;
-                stageSelect.appendChild(option);
-            });
-        });
-
-    stageSelect.addEventListener('change', function() {
-        var selected = stages.find(function(item) { return item.code === stageSelect.value; });
-        deptInput.value = selected ? (departmentLabels[selected.department] || selected.department) : '';
-        recipientSelect.innerHTML = '<option value="">در حال بارگذاری...</option>';
-        if (!selected) return;
-        fetch('/api/panel/users/by-department/' + encodeURIComponent(selected.department), { headers: workflowHeaders() })
-            .then(function(response) { return response.json(); })
-            .then(function(users) {
-                recipientSelect.innerHTML = '<option value="">انتخاب گیرنده</option>';
-                (users || []).forEach(function(user) {
-                    var option = document.createElement('option');
-                    option.value = user.id;
-                    option.textContent = user.full_name + ' (' + user.username + ')';
-                    recipientSelect.appendChild(option);
-                });
-            });
-    });
-
-    card.querySelector('#orderWorkflowForm').addEventListener('submit', function(event) {
-        event.preventDefault();
-        var payload = {
-            to_user_id: Number(recipientSelect.value),
-            stage: stageSelect.value,
-            to_department: stages.find(function(item) { return item.code === stageSelect.value; })?.department || null,
-            note: card.querySelector('#workflowNote').value.trim() || null
-        };
-        fetch('/api/workflow/orders/' + order.id + '/transfer', {
-            method: 'POST',
-            headers: workflowHeaders(),
-            body: JSON.stringify(payload)
-        }).then(function(response) {
-            return response.json().then(function(body) {
-                if (!response.ok) throw new Error(body.detail || 'انتقال ثبت نشد');
-                return body;
-            });
-        }).then(function() {
-            if (typeof showSuccess === 'function') showSuccess('درخواست انتقال ثبت شد و برای گیرنده اعلان ارسال گردید.');
-            loadOrder();
-        }).catch(function(error) {
-            if (typeof showError === 'function') showError(error.message);
-        });
-    });
-}
-
-function renderWorkflowAction(order, container) {
-    var definitions = {
-        TECHNICAL_DIAGNOSIS: { action: 'DIAGNOSIS', title: 'ثبت نتیجه عیب‌یابی', placeholder: 'شرح عیب و نتیجه بررسی...' },
-        MANAGEMENT_PRICING: { action: 'PRICING', title: 'ثبت قیمت پیشنهادی', placeholder: 'توضیحات قیمت‌گذاری...' },
-        CUSTOMER_APPROVAL: { action: 'CUSTOMER_DECISION', title: 'ثبت نظر مشتری', placeholder: 'توضیح تماس با مشتری...' },
-        TECHNICAL_REPAIR: { action: 'REPAIR_COMPLETE', title: 'ثبت پایان تعمیر', placeholder: 'شرح تعمیرات انجام‌شده...' },
-        TECHNICAL_FINAL_TEST: { action: 'FINAL_TEST', title: 'ثبت تست نهایی', placeholder: 'نتیجه تست نهایی...' },
-        RECEPTION_DELIVERY: { action: 'DELIVER', title: 'ثبت تحویل دستگاه', placeholder: 'یادداشت تحویل...' }
+    const stages = await getJson("/api/workflow/stages");
+    const departments = {
+      RECEPTION: "پذیرش",
+      TECHNICAL: "فنی",
+      MANAGEMENT: "مدیریت",
+      CUSTOMER_RELATIONS: "ارتباط با مشتریان",
     };
-    var definition = definitions[order.current_stage];
-    if (!definition) return;
 
-    var priceField = definition.action === 'PRICING'
-        ? '<input id="workflowQuotedPrice" type="number" min="0" step="0.01" class="form-control mb-2" placeholder="مبلغ پیشنهادی">'
-        : '';
-    var approvalField = definition.action === 'CUSTOMER_DECISION'
-        ? '<div class="btn-group mb-2" role="group"><button type="button" class="btn btn-success" data-approval="true">موافقت مشتری</button><button type="button" class="btn btn-outline-danger" data-approval="false">عدم موافقت</button></div>'
-        : '';
-    var submitField = definition.action === 'CUSTOMER_DECISION'
-        ? ''
-        : '<button class="btn btn-outline-primary" type="submit">' +
-          (definition.action === 'DELIVER' ? 'ثبت تحویل دستگاه' : 'ثبت اقدام') +
-          '</button>';
+    wrapper.innerHTML = `
+      <div class="card shadow-sm mt-4">
+        <div class="card-header bg-white">
+          <strong><i class="fas fa-route text-primary"></i> گردش پرونده</strong>
+        </div>
+        <div class="card-body">
+          <div class="small text-muted mb-3">
+            مرحله فعلی: <strong>${escapeHtml(order.current_stage || "-")}</strong>
+          </div>
+          <div id="workflow-action"></div>
+          <form id="transfer-form" class="row g-2 align-items-end mt-3">
+            <div class="col-md-4">
+              <label class="form-label">مرحله بعد</label>
+              <select class="form-select" id="workflow-stage" required>
+                <option value="">انتخاب مرحله</option>
+                ${stages
+                  .map(
+                    (item) =>
+                      `<option value="${item.code}" data-department="${item.department}">${escapeHtml(
+                        item.label
+                      )}</option>`
+                  )
+                  .join("")}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">بخش</label>
+              <input class="form-control" id="workflow-department" readonly>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">تکنسین/کاربر مقصد</label>
+              <select class="form-select" id="workflow-recipient" required>
+                <option value="">ابتدا مرحله را انتخاب کنید</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-primary w-100" type="submit">ارسال انتقال</button>
+            </div>
+            <div class="col-12">
+              <textarea class="form-control" id="workflow-note" rows="2" placeholder="توضیح انتقال (اختیاری)"></textarea>
+            </div>
+          </form>
+          <hr>
+          <h6>تاریخچه انتقال‌ها</h6>
+          <div>${renderWorkflowHistory(history)}</div>
+        </div>
+      </div>`;
 
-    container.innerHTML =
-        '<div class="border rounded p-3 bg-white">' +
-        '<h6 class="text-primary"><i class="fas fa-clipboard-check"></i> ' + definition.title + '</h6>' +
-        '<form id="workflowActionForm">' +
-        priceField +
-        '<textarea id="workflowActionNotes" class="form-control mb-2" rows="2" placeholder="' + definition.placeholder + '"></textarea>' +
-        approvalField + submitField +
-        '</form></div>';
+    const stageSelect = document.getElementById("workflow-stage");
+    const departmentInput = document.getElementById("workflow-department");
+    const recipientSelect = document.getElementById("workflow-recipient");
+    const actionContainer = document.getElementById("workflow-action");
 
-    var submitAction = function(approved) {
-        var payload = {
+    const definition = actionDefinition(order.current_stage);
+    if (definition) {
+      const priceField =
+        definition.action === "PRICING"
+          ? '<input id="quoted-price" type="number" min="0" step="0.01" class="form-control mb-2" placeholder="مبلغ پیشنهادی">'
+          : "";
+      const approvalField =
+        definition.action === "CUSTOMER_DECISION"
+          ? `<div class="d-flex gap-2">
+               <button type="button" class="btn btn-success" data-approval="true">مشتری موافق است</button>
+               <button type="button" class="btn btn-outline-danger" data-approval="false">مشتری مخالف است</button>
+             </div>`
+          : '<button class="btn btn-outline-primary" type="submit">ثبت اقدام</button>';
+
+      actionContainer.innerHTML = `
+        <div class="border rounded p-3 bg-light">
+          <h6 class="text-primary">${definition.title}</h6>
+          <form id="action-form">
+            ${priceField}
+            <textarea id="action-notes" class="form-control mb-2" rows="2" placeholder="${definition.placeholder}"></textarea>
+            ${approvalField}
+          </form>
+        </div>`;
+
+      const submitAction = async (approved = null) => {
+        try {
+          const price = document.getElementById("quoted-price")?.value;
+          await postJson(`/api/workflow/orders/${order.id}/action`, {
             action: definition.action,
-            notes: container.querySelector('#workflowActionNotes').value.trim() || null,
-            quoted_price: container.querySelector('#workflowQuotedPrice')?.value
-                ? Number(container.querySelector('#workflowQuotedPrice').value) : null,
-            approved: approved === undefined ? null : approved
-        };
-        fetch('/api/workflow/orders/' + order.id + '/action', {
-            method: 'POST',
-            headers: workflowHeaders(),
-            body: JSON.stringify(payload)
-        }).then(function(response) {
-            return response.json().then(function(body) {
-                if (!response.ok) throw new Error(body.detail || 'اقدام ثبت نشد');
-                return body;
-            });
-        }).then(function() {
-            if (typeof showSuccess === 'function') showSuccess('اقدام workflow ثبت شد.');
-            loadOrder();
-        }).catch(function(error) {
-            if (typeof showError === 'function') showError(error.message);
+            notes: document.getElementById("action-notes")?.value.trim() || null,
+            quoted_price: price ? Number(price) : null,
+            approved,
+          });
+          message("اقدام workflow با موفقیت ثبت شد.");
+          await loadOrder();
+        } catch (error) {
+          message(error.message, "error");
+        }
+      };
+
+      document
+        .getElementById("action-form")
+        .addEventListener("submit", (event) => {
+          event.preventDefault();
+          submitAction();
         });
-    };
-
-    container.querySelector('#workflowActionForm').addEventListener('submit', function(event) {
-        event.preventDefault();
-        submitAction();
-    });
-    container.querySelectorAll('[data-approval]').forEach(function(button) {
-        button.addEventListener('click', function() {
-            submitAction(button.dataset.approval === 'true');
-        });
-    });
-}
-
-// ============================================
-// بارگذاری اولیه
-// ============================================
-$(document).ready(function() {
-    console.log('📄 $(document).ready در order_detail.js اجرا شد');
-
-    var token = localStorage.getItem('access_token');
-    var user = localStorage.getItem('user');
-
-    console.log('🔍 بررسی احراز هویت:');
-    console.log('  - توکن:', token ? '✅ موجود' : '❌ ناموجود');
-    console.log('  - کاربر:', user ? '✅ موجود' : '❌ ناموجود');
-
-    if (!token || !user) {
-        console.warn('⚠️ احراز هویت نشده، هدایت به لاگین...');
-        window.location.href = '/login';
-        return;
-    }
-
-    // دریافت orderId از URL
-    var pathParts = window.location.pathname.split('/');
-    orderId = parseInt(pathParts[pathParts.length - 1]);
-
-    if (isNaN(orderId) || orderId <= 0) {
-        console.error('❌ orderId نامعتبر است');
-        $('#order-detail').html(
-            '<div class="alert alert-danger">' +
-                '<h4><i class="fas fa-exclamation-triangle"></i> شناسه نامعتبر</h4>' +
-                '<a href="/orders" class="btn btn-primary mt-2">بازگشت به لیست</a>' +
-            '</div>'
+      actionContainer.querySelectorAll("[data-approval]").forEach((button) => {
+        button.addEventListener("click", () =>
+          submitAction(button.dataset.approval === "true")
         );
-        return;
+      });
     }
 
-    loadOrder();
-});
+    stageSelect.addEventListener("change", async () => {
+      const option = stageSelect.selectedOptions[0];
+      const department = option?.dataset.department || "";
+      departmentInput.value = departments[department] || department;
+      recipientSelect.innerHTML =
+        '<option value="">در حال بارگذاری کاربران...</option>';
+      if (!department) return;
+      try {
+        const users = await getJson(
+          `/api/panel/users/by-department/${encodeURIComponent(department)}`
+        );
+        recipientSelect.innerHTML =
+          '<option value="">انتخاب گیرنده</option>' +
+          users
+            .map(
+              (user) =>
+                `<option value="${user.id}">${escapeHtml(
+                  user.full_name
+                )} (${escapeHtml(user.username)})</option>`
+            )
+            .join("");
+      } catch (error) {
+        recipientSelect.innerHTML = '<option value="">کاربری پیدا نشد</option>';
+        message(error.message, "error");
+      }
+    });
+
+    document
+      .getElementById("transfer-form")
+      .addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const selected = stageSelect.selectedOptions[0];
+        try {
+          await postJson(`/api/workflow/orders/${order.id}/transfer`, {
+            to_user_id: Number(recipientSelect.value),
+            to_department: selected?.dataset.department || null,
+            stage: stageSelect.value,
+            note: document.getElementById("workflow-note").value.trim() || null,
+          });
+          message("درخواست انتقال ثبت شد و برای گیرنده اعلان ارسال گردید.");
+          await loadOrder();
+        } catch (error) {
+          message(error.message, "error");
+        }
+      });
+  }
+
+  function renderOrder(order, attachments, history) {
+    const container = document.getElementById("order-detail");
+    container.innerHTML = `
+      <div class="card shadow-sm border-0">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <h4 class="mb-0">پرونده #${order.id}</h4>
+          ${statusBadge(order.status)}
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6"><div class="border rounded p-3"><strong>کد رهگیری:</strong><br><code>${escapeHtml(order.tracking_code)}</code></div></div>
+            <div class="col-md-6"><div class="border rounded p-3"><strong>مرحله فعلی:</strong><br>${escapeHtml(order.current_stage || "-")}</div></div>
+            <div class="col-md-6"><div class="border rounded p-3"><strong>مشتری:</strong><br>${escapeHtml(order.customer_name || "-")}<br>${escapeHtml(order.customer_phone || "-")}</div></div>
+            <div class="col-md-6"><div class="border rounded p-3"><strong>دستگاه:</strong><br>${escapeHtml(order.device_brand || "-")} ${escapeHtml(order.device_model || "")}<br>سریال: ${escapeHtml(order.device_serial_number || "-")}</div></div>
+            <div class="col-12"><div class="border rounded p-3"><strong>شرح مشکل:</strong><br>${escapeHtml(order.customer_complaint || "-")}</div></div>
+          </div>
+          <div class="mt-4"><h5>فایل‌های ضمیمه</h5>${renderAttachments(attachments)}</div>
+          <div id="workflow-area"></div>
+          <div class="mt-4 d-flex gap-2 flex-wrap">
+            <a class="btn btn-success" href="/reception/repair-orders/${order.id}/receipt" target="_blank"><i class="fas fa-print"></i> چاپ برگ پذیرش</a>
+            <a class="btn btn-secondary" href="/orders">بازگشت به پرونده‌ها</a>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function loadOrder() {
+    if (!token()) {
+      window.location.href = "/login";
+      return;
+    }
+    if (!orderId || Number.isNaN(orderId)) {
+      document.getElementById("order-detail").innerHTML =
+        '<div class="alert alert-danger">شناسه پرونده معتبر نیست.</div>';
+      return;
+    }
+
+    try {
+      const [order, attachments, workflowHistory] = await Promise.all([
+        getJson(`/reception/repair-orders/${orderId}`),
+        getJson(`/reception/repair-orders/${orderId}/attachments`),
+        getJson(`/api/workflow/orders/${orderId}/history`),
+      ]);
+      renderOrder(order, attachments, workflowHistory);
+      await renderWorkflow(order, workflowHistory);
+    } catch (error) {
+      document.getElementById(
+        "order-detail"
+      ).innerHTML = `<div class="alert alert-danger">${escapeHtml(
+        error.message
+      )}</div>`;
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", loadOrder);
+})();

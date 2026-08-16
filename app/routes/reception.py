@@ -605,7 +605,8 @@ def search_devices(
 # --------------------------------------------
 # 10. تغییر وضعیت پرونده
 # --------------------------------------------
-@router.put("/repair-orders/{order_id}/status")
+# Legacy manual status endpoint removed. Workflow transitions are the only
+# supported way to advance a repair order.
 def update_order_status(
     order_id: int,
     request: StatusUpdateRequest,
