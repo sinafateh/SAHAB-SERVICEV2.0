@@ -5,6 +5,7 @@ from typing import Optional, List
 import os
 import shutil
 from datetime import datetime
+from pathlib import Path
 import uuid
 import io
 import json
@@ -14,7 +15,8 @@ from pydantic import ValidationError
 from app.database import get_db
 from app.models import (
     Customer, Device, RepairOrder, User, StatusHistory, Attachment,
-    Site, SiteType, Panel, Board, BoardType, OrderStatus
+    Site, SiteType, Panel, Board, BoardType, OrderStatus,
+    Notification, WorkflowTransition, TechnicalStageTiming, CaseTimelineEvent,
 )
 from app.schemas import (
     CustomerCreate, CustomerResponse,
@@ -27,7 +29,8 @@ from app.auth import (
     get_current_active_user,
     get_current_admin_user,
     get_current_technical_user,
-    get_current_reception_user
+    get_current_reception_user,
+    PRIVILEGED_ROLES,
 )
 from app.schemas import PhysicalCondition
 from fastapi.responses import HTMLResponse
@@ -526,15 +529,78 @@ def get_repair_order(
             )
         
         return format_order_response(order)
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"خطا در دریافت جزئیات پرونده {order_id}: {e}")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="خطا در دریافت اطلاعات"
+            detail="خطا در دریافت اطلاعات پرونده"
         )
+
+
+@router.delete("/repair-orders/{order_id}")
+def delete_repair_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """حذف یک پرونده؛ فقط مدیرکل و مدیریت مجاز هستند."""
+    order = db.query(RepairOrder).filter(RepairOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="پرونده مورد نظر پیدا نشد",
+        )
+
+    upload_root = Path(settings.upload_dir).resolve()
+    attachment_paths = [
+        item[0]
+        for item in db.query(Attachment.file_path)
+        .filter(Attachment.repair_order_id == order_id)
+        .all()
+    ]
+    for file_path in attachment_paths:
+        if not file_path:
+            continue
+        relative_path = file_path.removeprefix("/uploads/").lstrip("/\\")
+        candidate = (upload_root / relative_path).resolve()
+        if upload_root in candidate.parents and candidate.is_file():
+            try:
+                candidate.unlink()
+            except OSError:
+                logger.warning("Could not remove attachment file: %s", candidate)
+
+    child_models = [
+        Attachment,
+        Board,
+        StatusHistory,
+        WorkflowTransition,
+        TechnicalStageTiming,
+        CaseTimelineEvent,
+    ]
+    for model in child_models:
+        db.query(model).filter(model.repair_order_id == order_id).delete(
+            synchronize_session=False
+        )
+    db.query(Notification).filter(Notification.repair_order_id == order_id).delete(
+        synchronize_session=False
+    )
+    db.delete(order)
+    db.commit()
+
+    for folder in ("photos", "attachments"):
+        order_folder = (upload_root / folder / str(order_id)).resolve()
+        if upload_root in order_folder.parents and order_folder.is_dir():
+            shutil.rmtree(order_folder, ignore_errors=True)
+
+    logger.warning(
+        "Repair order %s was deleted by privileged user %s",
+        order_id,
+        current_user.username,
+    )
+    return {"deleted": True, "id": order_id, "message": "پرونده با موفقیت حذف شد."}
 
 # --------------------------------------------
 # 8. جستجوی مشتریان (ساده)
@@ -907,7 +973,7 @@ async def upload_file(
         stage = (stage or "GENERAL").upper()
         if stage not in allowed_stages:
             raise HTTPException(status_code=400, detail="دسته‌بندی مرحله‌ای فایل معتبر نیست.")
-        if current_user.role != "ADMIN" and order.current_user_id not in {None, current_user.id}:
+        if current_user.role not in PRIVILEGED_ROLES and order.current_user_id not in {None, current_user.id}:
             raise HTTPException(status_code=403, detail="این پرونده در اختیار شما نیست.")
 
         if file.size and file.size > settings.max_file_size:

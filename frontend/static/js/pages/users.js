@@ -1,253 +1,205 @@
-// ============================================
-// صفحه مدیریت کاربران
-// ============================================
+(() => {
+  "use strict";
+  const token = () => localStorage.getItem("access_token") || "";
+  const privilegedRoles = new Set(["ADMIN", "MANAGEMENT"]);
+  const roles = [
+    ["ADMIN", "مدیرکل", "#dc3545"],
+    ["MANAGEMENT", "مدیریت", "#6f42c1"],
+    ["TECHNICAL", "فنی", "#0d6efd"],
+    ["RECEPTION", "پذیرش", "#198754"],
+    ["CUSTOMER_RELATIONS", "ارتباط با مشتریان", "#fd7e14"],
+  ];
+  let users = [];
 
-console.log('✅ users.js شروع به کار کرد');
+  const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+  }[char]));
+  const roleMeta = role => {
+    const item = roles.find(value => value[0] === role);
+    return { label: item?.[1] || role || "-", color: item?.[2] || "#6c757d" };
+  };
+  const roleLabel = role => roleMeta(role).label;
 
-// ============================================
-// تابع بارگذاری کاربران
-// ============================================
-function loadUsers() {
-    console.log('🔄 بارگذاری کاربران...');
-    
-    $('#users-table').html(
-        '<div class="text-center py-5">' +
-            '<i class="fas fa-spinner fa-spin fa-2x text-primary"></i>' +
-            '<p class="mt-2 text-muted">در حال بارگذاری کاربران...</p>' +
-        '</div>'
+  async function api(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token()}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || "عملیات انجام نشد");
+    return body;
+  }
+
+  function roleOptions(selected = "TECHNICAL") {
+    return roles.map(([value, label]) =>
+      `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+    ).join("");
+  }
+
+  function renderUsers() {
+    const root = document.getElementById("users-table");
+    if (!users.length) {
+      root.innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-users-slash fa-3x mb-3"></i><p>کاربری ثبت نشده است.</p></div>';
+      return;
+    }
+    const groups = roles
+      .map(([role]) => ({ role, users: users.filter(user => user.role === role) }))
+      .filter(group => group.users.length);
+    const unknownGroups = [...new Set(users.map(user => user.role))]
+      .filter(role => !roles.some(item => item[0] === role))
+      .map(role => ({ role, users: users.filter(user => user.role === role) }));
+
+    root.innerHTML = [...groups, ...unknownGroups].map(group => {
+      const meta = roleMeta(group.role);
+      return `<section class="card shadow-sm mb-3 role-group" style="--role-color:${meta.color}">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <strong class="role-group-title"><span class="role-dot"></span>${escapeHtml(meta.label)}</strong>
+          <span class="badge rounded-pill" style="background:${meta.color}">${group.users.length} کاربر</span>
+        </div>
+        <div class="table-responsive"><table class="table table-hover align-middle mb-0">
+          <thead><tr><th>#</th><th>نام کامل</th><th>نام کاربری</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+          <tbody>${group.users.map((user, index) => `<tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(user.full_name)}</td>
+            <td><code>${escapeHtml(user.username)}</code></td>
+            <td><span class="badge bg-${user.is_active ? "success" : "secondary"}">${user.is_active ? "فعال" : "غیرفعال"}</span></td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-primary" data-edit-user="${user.id}" title="ویرایش"><i class="fas fa-edit"></i></button>
+              <button class="btn btn-sm btn-outline-danger" data-delete-user="${user.id}" title="حذف"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+      </section>`;
+    }).join("");
+    root.querySelectorAll("[data-edit-user]").forEach(button =>
+      button.addEventListener("click", () => editUser(Number(button.dataset.editUser)))
     );
-    
-    var token = localStorage.getItem('access_token');
-    
-    fetch('/auth/users', {
-        headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json'
-        }
-    })
-    .then(function(response) {
-        if (!response.ok) {
-            if (response.status === 403) {
-                throw new Error('دسترسی غیرمجاز. فقط مدیران می‌توانند کاربران را مدیریت کنند.');
-            }
-            throw new Error('خطا در دریافت اطلاعات: ' + response.status);
-        }
-        return response.json();
-    })
-    .then(function(users) {
-        console.log('📋 کاربران دریافت شدند:', users);
-        if (users && users.length > 0) {
-            renderUsersTable(users);
-        } else {
-            $('#users-table').html(
-                '<div class="text-center py-4">' +
-                    '<i class="fas fa-users fa-3x text-muted mb-3"></i>' +
-                    '<p class="text-muted">هیچ کاربری وجود ندارد</p>' +
-                '</div>'
-            );
-        }
-    })
-    .catch(function(error) {
-        console.error('❌ خطا:', error);
-        $('#users-table').html(
-            '<div class="alert alert-danger">' +
-                '<i class="fas fa-exclamation-triangle"></i> ' +
-                error.message +
-            '</div>'
-        );
-    });
-}
+    root.querySelectorAll("[data-delete-user]").forEach(button =>
+      button.addEventListener("click", () => deleteUser(Number(button.dataset.deleteUser)))
+    );
+  }
 
-// ============================================
-// تابع رندر جدول کاربران
-// ============================================
-function renderUsersTable(users) {
-    var roleLabels = {
-        'ADMIN': 'مدیر سیستم',
-        'RECEPTION': 'پذیرش',
-        'CUSTOMER_RELATIONS': 'روابط با مشتریان',
-        'TECHNICAL': 'فنی',
-        'MANAGEMENT': 'مدیریت',
-        'VIEWER': 'بیننده'
-    };
-    
-    var roleColors = {
-        'ADMIN': 'danger',
-        'RECEPTION': 'primary',
-        'CUSTOMER_RELATIONS': 'info',
-        'TECHNICAL': 'warning',
-        'MANAGEMENT': 'dark',
-        'VIEWER': 'secondary'
-    };
-    
-    var html = '';
-    html += '<div class="table-responsive">';
-    html += '<table class="table table-hover table-striped">';
-    html += '<thead class="table-light">';
-    html += '<tr>';
-    html += '<th class="text-center">#</th>';
-    html += '<th>نام کاربری</th>';
-    html += '<th>نام کامل</th>';
-    html += '<th>نقش</th>';
-    html += '<th>بخش</th>';
-    html += '<th>وضعیت</th>';
-    html += '<th>آخرین ورود</th>';
-    html += '<th class="text-center">عملیات</th>';
-    html += '</tr>';
-    html += '</thead>';
-    html += '<tbody>';
-    
-    for (var i = 0; i < users.length; i++) {
-        var user = users[i];
-        var statusBadge = user.is_active ?
-            '<span class="badge bg-success">فعال</span>' :
-            '<span class="badge bg-danger">غیرفعال</span>';
-        
-        var roleLabel = roleLabels[user.role] || user.role;
-        var roleColor = roleColors[user.role] || 'secondary';
-        
-        html += '<tr>';
-        html += '<td class="text-center">' + (i + 1) + '</td>';
-        html += '<td><code class="fw-bold">' + user.username + '</code></td>';
-        html += '<td>' + user.full_name + '</td>';
-        html += '<td><span class="badge bg-' + roleColor + '">' + roleLabel + '</span></td>';
-        html += '<td>' + (user.department || '-') + '</td>';
-        html += '<td>' + statusBadge + '</td>';
-        html += '<td><small>' + formatDate(user.last_login) + '</small></td>';
-        html += '<td class="text-center">';
-        html += '<button class="btn btn-sm btn-outline-primary me-1" onclick="editUser(' + user.id + ')">';
-        html += '<i class="fas fa-edit"></i>';
-        html += '</button>';
-        html += '<button class="btn btn-sm btn-outline-danger" onclick="deleteUser(' + user.id + ')">';
-        html += '<i class="fas fa-trash"></i>';
-        html += '</button>';
-        html += '</td>';
-        html += '</tr>';
-    }
-    
-    html += '</tbody>';
-    html += '</table>';
-    html += '</div>';
-    html += '<div class="d-flex justify-content-between align-items-center mt-3">';
-    html += '<small class="text-muted">' + users.length + ' کاربر</small>';
-    html += '</div>';
-    
-    $('#users-table').html(html);
-}
-
-// ============================================
-// تابع ویرایش کاربر
-// ============================================
-function editUser(userId) {
-    showInfo('ویرایش کاربر #' + userId + ' (در حال توسعه...)');
-}
-
-// ============================================
-// تابع حذف کاربر
-// ============================================
-function deleteUser(userId) {
-    Swal.fire({
-        title: 'حذف کاربر',
-        text: 'آیا از حذف این کاربر مطمئن هستید؟ این عملیات قابل بازگشت نیست.',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#dc3545',
-        cancelButtonColor: '#6c757d',
-        confirmButtonText: 'بله، حذف کن',
-        cancelButtonText: 'انصراف'
-    }).then(function(result) {
-        if (result.isConfirmed) {
-            var token = localStorage.getItem('access_token');
-            
-            Swal.fire({
-                title: 'در حال حذف...',
-                allowOutsideClick: false,
-                showConfirmButton: false,
-                willOpen: function() {
-                    Swal.showLoading();
-                }
-            });
-            
-            fetch('/auth/users/' + userId, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'application/json'
-                }
-            })
-            .then(function(response) {
-                if (!response.ok) {
-                    return response.json().then(function(err) {
-                        throw new Error(err.detail || 'خطا در حذف کاربر');
-                    });
-                }
-                return response.json();
-            })
-            .then(function() {
-                Swal.close();
-                showSuccess('کاربر با موفقیت حذف شد');
-                loadUsers();
-            })
-            .catch(function(error) {
-                Swal.close();
-                showError(error.message || 'خطا در حذف کاربر');
-            });
-        }
-    });
-}
-
-// ============================================
-// تابع نمایش مودال افزودن کاربر
-// ============================================
-function showAddUserModal() {
-    showInfo('افزودن کاربر جدید (در حال توسعه...)');
-}
-
-// ============================================
-// بارگذاری اولیه صفحه
-// ============================================
-$(document).ready(function() {
-    console.log('📄 $(document).ready در users.js اجرا شد');
-    
-    // بررسی احراز هویت
-    var token = localStorage.getItem('access_token');
-    var user = localStorage.getItem('user');
-    
-    console.log('🔍 بررسی احراز هویت:');
-    console.log('  - توکن:', token ? '✅ موجود' : '❌ ناموجود');
-    console.log('  - کاربر:', user ? '✅ موجود' : '❌ ناموجود');
-    
-    if (!token || !user) {
-        console.warn('⚠️ احراز هویت نشده، هدایت به لاگین...');
-        window.location.href = '/login';
-        return;
-    }
-    
-    // بررسی نقش کاربر (فقط مدیران)
+  async function loadUsers() {
+    document.getElementById("users-table").innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
     try {
-        var userData = JSON.parse(user);
-        console.log('👤 نقش کاربر:', userData.role);
-        
-        if (userData.role !== 'ADMIN') {
-            showError('دسترسی غیرمجاز. فقط مدیران می‌توانند کاربران را مدیریت کنند.');
-            setTimeout(function() {
-                window.location.href = '/';
-            }, 1500);
-            return;
-        }
-    } catch (e) {
-        console.error('❌ خطا در parse user:', e);
-        window.location.href = '/login';
-        return;
+      users = await api("/auth/users");
+      renderUsers();
+    } catch (error) {
+      document.getElementById("users-table").innerHTML = `<div class="alert alert-danger">${escapeHtml(error.message)}</div>`;
     }
-    
-    // بارگذاری کاربران
-    loadUsers();
-    
-    // دکمه افزودن کاربر
-    $('#addUserBtn').on('click', function() {
-        showAddUserModal();
+  }
+
+  async function addUser() {
+    const result = await Swal.fire({
+      title: "افزودن کاربر جدید",
+      html: `<input id="userFullName" class="swal2-input" placeholder="نام کامل">
+        <input id="userUsername" class="swal2-input" placeholder="نام کاربری">
+        <input id="userPassword" type="password" class="swal2-input" placeholder="رمز عبور (حداقل ۶ کاراکتر)">
+        <select id="userRole" class="swal2-select">${roleOptions()}</select>`,
+      showCancelButton: true,
+      confirmButtonText: "ثبت کاربر",
+      cancelButtonText: "انصراف",
+      focusConfirm: false,
+      preConfirm: () => {
+        const full_name = document.getElementById("userFullName").value.trim();
+        const username = document.getElementById("userUsername").value.trim();
+        const password = document.getElementById("userPassword").value;
+        const role = document.getElementById("userRole").value;
+        if (!full_name || !username || password.length < 6) {
+          Swal.showValidationMessage("نام کامل، نام کاربری و رمز عبور حداقل ۶ کاراکتری الزامی است.");
+          return false;
+        }
+        return { full_name, username, password, role };
+      },
     });
-    
-    console.log('✅ users.js راه‌اندازی شد');
-});
+    if (!result.isConfirmed) return;
+    try {
+      await api("/auth/register", { method: "POST", body: JSON.stringify(result.value) });
+      await Swal.fire({ icon: "success", text: "کاربر با موفقیت اضافه شد.", timer: 1600, showConfirmButton: false });
+      await loadUsers();
+    } catch (error) {
+      Swal.fire({ icon: "error", text: error.message });
+    }
+  }
+
+  async function editUser(userId) {
+    const user = users.find(item => item.id === userId);
+    if (!user) return;
+    const result = await Swal.fire({
+      title: `ویرایش ${escapeHtml(user.full_name)}`,
+      html: `<input id="editFullName" class="swal2-input" value="${escapeHtml(user.full_name)}" placeholder="نام کامل">
+        <select id="editRole" class="swal2-select">${roleOptions(user.role)}</select>
+        <select id="editActive" class="swal2-select">
+          <option value="true" ${user.is_active ? "selected" : ""}>فعال</option>
+          <option value="false" ${!user.is_active ? "selected" : ""}>غیرفعال</option>
+        </select>
+        <input id="editPassword" type="password" class="swal2-input" placeholder="رمز جدید (اختیاری)">`,
+      showCancelButton: true,
+      confirmButtonText: "ذخیره تغییرات",
+      cancelButtonText: "انصراف",
+      preConfirm: () => {
+        const full_name = document.getElementById("editFullName").value.trim();
+        const password = document.getElementById("editPassword").value;
+        if (!full_name || (password && password.length < 6)) {
+          Swal.showValidationMessage("نام کامل الزامی است و رمز جدید باید حداقل ۶ کاراکتر باشد.");
+          return false;
+        }
+        return {
+          full_name,
+          role: document.getElementById("editRole").value,
+          is_active: document.getElementById("editActive").value === "true",
+          ...(password ? { password } : {}),
+        };
+      },
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await api(`/auth/users/${userId}`, { method: "PUT", body: JSON.stringify(result.value) });
+      await Swal.fire({ icon: "success", text: "تغییرات ذخیره شد.", timer: 1500, showConfirmButton: false });
+      await loadUsers();
+    } catch (error) {
+      Swal.fire({ icon: "error", text: error.message });
+    }
+  }
+
+  async function deleteUser(userId) {
+    const user = users.find(item => item.id === userId);
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "حذف کاربر",
+      text: `کاربر ${user?.full_name || ""} حذف شود؟`,
+      showCancelButton: true,
+      confirmButtonText: "بله، حذف شود",
+      cancelButtonText: "انصراف",
+      confirmButtonColor: "#dc3545",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await api(`/auth/users/${userId}`, { method: "DELETE" });
+      await loadUsers();
+      Swal.fire({ icon: "success", text: "کاربر حذف شد.", timer: 1400, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: "error", text: error.message });
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    if (!token()) return (location.href = "/login");
+    let user = {};
+    try {
+      const verified = await api("/auth/verify");
+      user = verified.user || {};
+      localStorage.setItem("user", JSON.stringify({ ...JSON.parse(localStorage.getItem("user") || "{}"), ...user }));
+    } catch (_) {
+      return (location.href = "/login");
+    }
+    if (!privilegedRoles.has(user.role)) return (location.href = "/panel");
+    document.getElementById("addUserBtn").addEventListener("click", addUser);
+    document.getElementById("refreshUsersBtn").addEventListener("click", loadUsers);
+    await loadUsers();
+  });
+})();

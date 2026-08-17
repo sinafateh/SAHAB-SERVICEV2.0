@@ -1,16 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from datetime import datetime
+from pathlib import Path
+import shutil
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 
 from app.database import get_db
-from app.models.user import User
+from app.models import (
+    Attachment,
+    Board,
+    CaseTimelineEvent,
+    Notification,
+    RepairOrder,
+    StatusHistory,
+    TechnicalStageTiming,
+    User,
+    WorkflowTransition,
+)
 from app.auth import (
     verify_password, get_password_hash, create_access_token,
     get_current_user, get_current_active_user, get_current_admin_user,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES, PRIVILEGED_ROLES,
 )
 from app.config import settings
 import logging
@@ -55,6 +68,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     department: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
+    password: Optional[str] = Field(None, min_length=6, max_length=100)
 
 class ChangePassword(BaseModel):
     """تغییر رمز عبور"""
@@ -82,6 +96,7 @@ class UserResponse(BaseModel):
 # لیست نقش‌های معتبر
 # ============================================
 VALID_ROLES = ["ADMIN", "RECEPTION", "CUSTOMER_RELATIONS", "TECHNICAL", "MANAGEMENT", "VIEWER"]
+MANAGEABLE_ROLES = ["ADMIN", "MANAGEMENT", "TECHNICAL", "RECEPTION", "CUSTOMER_RELATIONS"]
 ROLE_DEPARTMENTS = {
     "RECEPTION": "RECEPTION",
     "CUSTOMER_RELATIONS": "CUSTOMER_RELATIONS",
@@ -183,10 +198,10 @@ def register(
             )
     
     # بررسی نقش معتبر
-    if user_data.role not in VALID_ROLES:
+    if user_data.role not in MANAGEABLE_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(VALID_ROLES)}"
+            detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(MANAGEABLE_ROLES)}"
         )
 
     expected_department = ROLE_DEPARTMENTS.get(user_data.role)
@@ -309,10 +324,10 @@ def update_user(
     if user_data.phone is not None:
         user.phone = user_data.phone
     if user_data.role is not None:
-        if user_data.role not in VALID_ROLES:
+        if user_data.role not in MANAGEABLE_ROLES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(VALID_ROLES)}"
+            detail=f"نقش نامعتبر. نقش‌های مجاز: {', '.join(MANAGEABLE_ROLES)}"
             )
         user.role = user_data.role
     if user_data.department is not None:
@@ -322,6 +337,8 @@ def update_user(
         user.department = expected_department
     if user_data.is_active is not None:
         user.is_active = user_data.is_active
+    if user_data.password is not None:
+        user.password_hash = get_password_hash(user_data.password)
     
     db.commit()
     db.refresh(user)
@@ -355,6 +372,41 @@ def delete_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="نمی‌توانید خودتان را حذف کنید"
         )
+
+    if user.role in PRIVILEGED_ROLES:
+        privileged_count = (
+            db.query(User)
+            .filter(User.role.in_(PRIVILEGED_ROLES), User.is_active.is_(True))
+            .count()
+        )
+        if privileged_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="حداقل یک مدیر فعال باید در سامانه باقی بماند.",
+            )
+
+    has_history = any(
+        (
+            db.query(WorkflowTransition)
+            .filter(
+                or_(
+                    WorkflowTransition.from_user_id == user.id,
+                    WorkflowTransition.to_user_id == user.id,
+                )
+            )
+            .count(),
+            db.query(StatusHistory)
+            .filter(StatusHistory.changed_by == user.id)
+            .count(),
+        )
+    )
+    if has_history:
+        user.is_active = False
+        db.commit()
+        return {
+            "message": "این کاربر سابقه عملیاتی دارد و برای حفظ تاریخچه غیرفعال شد.",
+            "deactivated": True,
+        }
     
     db.delete(user)
     db.commit()
@@ -366,6 +418,85 @@ def delete_user(
 # ============================================
 # 8. خروج از سیستم
 # ============================================
+class PurgeRepairOrdersRequest(BaseModel):
+    confirmation: str = Field(..., min_length=10, max_length=50)
+
+
+PURGE_CONFIRMATION = "DELETE_ALL_REPAIR_ORDERS"
+
+
+@router.post("/repair-orders/purge")
+def purge_all_repair_orders(
+    payload: PurgeRepairOrdersRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """حذف کامل پرونده‌ها و داده‌های وابسته؛ فقط برای مدیرکل/مدیریت."""
+    if payload.confirmation != PURGE_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"برای تأیید باید عبارت {PURGE_CONFIRMATION} ارسال شود.",
+        )
+
+    order_ids = [item[0] for item in db.query(RepairOrder.id).all()]
+    if not order_ids:
+        return {"deleted_count": 0, "message": "پرونده‌ای برای حذف وجود ندارد."}
+
+    upload_root = Path(settings.upload_dir).resolve()
+    attachment_paths = [
+        item[0]
+        for item in db.query(Attachment.file_path)
+        .filter(Attachment.repair_order_id.in_(order_ids))
+        .all()
+    ]
+    for file_path in attachment_paths:
+        if not file_path:
+            continue
+        relative_path = file_path.removeprefix("/uploads/").lstrip("/\\")
+        candidate = (upload_root / relative_path).resolve()
+        if upload_root in candidate.parents and candidate.is_file():
+            try:
+                candidate.unlink()
+            except OSError:
+                logger.warning("Could not remove attachment file: %s", candidate)
+
+    child_models = [
+        Attachment,
+        Board,
+        StatusHistory,
+        WorkflowTransition,
+        TechnicalStageTiming,
+        CaseTimelineEvent,
+    ]
+    for model in child_models:
+        db.query(model).filter(model.repair_order_id.in_(order_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(Notification).filter(Notification.repair_order_id.in_(order_ids)).delete(
+        synchronize_session=False
+    )
+    deleted_count = db.query(RepairOrder).filter(RepairOrder.id.in_(order_ids)).delete(
+        synchronize_session=False
+    )
+    db.commit()
+
+    for order_id in order_ids:
+        for folder in ("photos", "attachments"):
+            order_folder = (upload_root / folder / str(order_id)).resolve()
+            if upload_root in order_folder.parents and order_folder.is_dir():
+                shutil.rmtree(order_folder, ignore_errors=True)
+
+    logger.warning(
+        "All repair orders were purged by privileged user %s: %s records",
+        current_user.username,
+        deleted_count,
+    )
+    return {
+        "deleted_count": deleted_count,
+        "message": "همه پرونده‌ها و داده‌های وابسته با موفقیت حذف شدند.",
+    }
+
+
 @router.post("/logout")
 def logout():
     """

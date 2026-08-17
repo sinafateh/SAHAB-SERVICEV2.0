@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
+from app.auth import PRIVILEGED_ROLES
 from app.models.notification import Notification
 from app.models.case_timeline_event import CaseTimelineEvent
 from app.models.repair_order import OrderStatus, RepairOrder
@@ -119,12 +120,12 @@ class WorkflowService:
         department = WorkflowService.effective_department(recipient)
         requested_department = to_department or department
 
-        if recipient.role != "ADMIN" and requested_department != config["department"]:
+        if recipient.role not in PRIVILEGED_ROLES and requested_department != config["department"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"گیرنده باید از بخش {DEPARTMENTS[config['department']]} باشد",
             )
-        if recipient.role != "ADMIN" and department != config["department"]:
+        if recipient.role not in PRIVILEGED_ROLES and department != config["department"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="بخش کاربر مقصد با مرحله‌ی انتخاب‌شده سازگار نیست",
@@ -133,7 +134,7 @@ class WorkflowService:
 
     @staticmethod
     def ensure_sender_can_transfer(order: RepairOrder, current_user: User) -> None:
-        if current_user.role == "ADMIN":
+        if current_user.role in PRIVILEGED_ROLES:
             return
         if order.current_user_id and order.current_user_id != current_user.id:
             raise HTTPException(
@@ -401,7 +402,7 @@ class WorkflowService:
         transition = db.query(WorkflowTransition).filter(WorkflowTransition.id == transition_id).first()
         if not transition:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="درخواست انتقال پیدا نشد")
-        if transition.from_user_id != current_user.id and current_user.role != "ADMIN":
+        if transition.from_user_id != current_user.id and current_user.role not in PRIVILEGED_ROLES:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="فقط فرستنده می‌تواند گیرنده را تغییر دهد")
         if transition.status != "PENDING":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="فقط انتقال باز قابل تغییر است")
@@ -446,7 +447,7 @@ class WorkflowService:
         quoted_price: Optional[Decimal] = None,
         approved: Optional[bool] = None,
     ) -> RepairOrder:
-        if order.current_user_id and order.current_user_id != current_user.id and current_user.role != "ADMIN":
+        if order.current_user_id and order.current_user_id != current_user.id and current_user.role not in PRIVILEGED_ROLES:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="این پرونده در اختیار شما نیست")
 
         department = WorkflowService.effective_department(current_user)
@@ -534,9 +535,9 @@ class WorkflowService:
             raise HTTPException(status_code=400, detail="Technical timing is only available for technical stages.")
         if order.current_stage != stage:
             raise HTTPException(status_code=409, detail="This stage is not the active stage of the case.")
-        if WorkflowService.effective_department(current_user) != "TECHNICAL" and current_user.role != "ADMIN":
+        if WorkflowService.effective_department(current_user) != "TECHNICAL" and current_user.role not in PRIVILEGED_ROLES:
             raise HTTPException(status_code=403, detail="Only technical users can record stage timing.")
-        if order.current_user_id and order.current_user_id != current_user.id and current_user.role != "ADMIN":
+        if order.current_user_id and order.current_user_id != current_user.id and current_user.role not in PRIVILEGED_ROLES:
             raise HTTPException(status_code=403, detail="This case belongs to another technician.")
 
     @staticmethod
@@ -577,7 +578,7 @@ class WorkflowService:
             TechnicalStageTiming.stage == stage,
             TechnicalStageTiming.status == "RUNNING",
         )
-        if current_user.role != "ADMIN":
+        if current_user.role not in PRIVILEGED_ROLES:
             query = query.filter(TechnicalStageTiming.user_id == current_user.id)
         timing = query.order_by(TechnicalStageTiming.started_at.desc()).first()
         if not timing:

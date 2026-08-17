@@ -80,11 +80,9 @@
       "profileDepartment",
       departments[user.department] || user.department || roles[user.role]
     );
-    setText("profileEmail", user.email);
-    setText("profilePhone", user.phone);
     setText("profileStatus", user.is_active ? "فعال" : "غیرفعال");
 
-    if (user.role !== "ADMIN") {
+    if (!["ADMIN", "MANAGEMENT"].includes(user.role)) {
       const usersMenu = document.getElementById("usersMenuItem");
       const dashboardMenu = document.getElementById("dashboardMenuItem");
       if (usersMenu) usersMenu.style.display = "none";

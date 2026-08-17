@@ -13,6 +13,7 @@
     CUSTOMER_APPROVAL: "تأیید مشتری", TECHNICAL_REPAIR: "تعمیر فنی",
     TECHNICAL_FINAL_TEST: "تست نهایی", RECEPTION_DELIVERY: "آماده تحویل"
   };
+  const privilegedRoles = new Set(["ADMIN", "MANAGEMENT"]);
   const timedStages = new Set(["TECHNICAL_DIAGNOSIS", "TECHNICAL_REPAIR", "TECHNICAL_FINAL_TEST"]);
   let sessionUser = null;
 
@@ -97,7 +98,7 @@
     if (!timedStages.has(order.current_stage)) return "";
     const running = items.find(x => x.stage === order.current_stage && x.status === "RUNNING");
     const user = currentUser();
-    const canControl = user.role === "ADMIN" || !order.current_user_id || Number(order.current_user_id) === Number(user.id);
+    const canControl = privilegedRoles.has(user.role) || !order.current_user_id || Number(order.current_user_id) === Number(user.id);
     return `<div class="card shadow-sm mt-4 border-primary"><div class="card-header bg-primary text-white"><i class="fas fa-stopwatch"></i> زمان‌سنج مرحله فنی</div><div class="card-body">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>مرحله فعال: <strong>${escapeHtml(stageLabels[order.current_stage])}</strong></div>
@@ -184,11 +185,32 @@
       <div class="card mt-4"><div class="card-header">آپلود فایل مرحله‌ای</div><div class="card-body"><div class="row g-2 align-items-end"><div class="col-md-3"><label class="form-label">مرحله</label><select id="fileStage" class="form-select"><option value="RECEPTION">پذیرش</option><option value="REPAIR">تعمیر</option><option value="TEST">تست</option><option value="DELIVERY">تحویل</option><option value="GENERAL">عمومی</option></select></div><div class="col-md-3"><input id="stageFile" type="file" class="form-control"></div><div class="col-md-4"><input id="fileDescription" class="form-control" placeholder="توضیح فایل"></div><div class="col-md-2"><button id="uploadStageFile" class="btn btn-success w-100">آپلود</button></div></div><div class="mt-3">${renderAttachments(attachments)}</div></div></div>
       <div id="workflow-area"></div>
       <div class="card mt-4"><div class="card-header">تایم‌لاین تصویری پرونده</div><div class="card-body">${renderTimeline(timeline)}</div></div>
-      <div class="mt-4"><a class="btn btn-success" href="/reception/repair-orders/${order.id}/receipt" target="_blank">چاپ رسید پذیرش</a> <a class="btn btn-secondary" href="/orders">بازگشت به برد</a></div>
+      <div class="mt-4"><a class="btn btn-success" href="/reception/repair-orders/${order.id}/receipt" target="_blank">چاپ رسید پذیرش</a> <a class="btn btn-secondary" href="/orders">بازگشت به برد</a>${privilegedRoles.has(currentUser().role) ? ` <button id="deleteOrderBtn" class="btn btn-outline-danger">حذف پرونده</button>` : ""}</div>
     </div></div>`;
     if (timedStages.has(order.current_stage)) document.getElementById("timingButton")?.addEventListener("click", () => handleTiming(order.current_stage, timings.some(x => x.stage === order.current_stage && x.status === "RUNNING")).catch(e => notify(e.message, "error")));
     document.getElementById("uploadStageFile").addEventListener("click", () => uploadStageFile().catch(e => notify(e.message, "error")));
     document.getElementById("fileStage").value = order.current_stage.includes("REPAIR") ? "REPAIR" : order.current_stage.includes("TEST") ? "TEST" : order.current_stage.includes("DELIVERY") ? "DELIVERY" : "RECEPTION";
+    document.getElementById("deleteOrderBtn")?.addEventListener("click", () => deleteOrder(order));
+  }
+
+  async function deleteOrder(order) {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "حذف پرونده",
+      text: `پرونده ${order.tracking_code || order.id} به‌صورت کامل حذف شود؟`,
+      showCancelButton: true,
+      confirmButtonText: "بله، حذف شود",
+      cancelButtonText: "انصراف",
+      confirmButtonColor: "#dc3545",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await api(`/reception/repair-orders/${order.id}`, { method: "DELETE" });
+      await Swal.fire({ icon: "success", text: "پرونده حذف شد.", timer: 1400, showConfirmButton: false });
+      window.location.href = "/orders";
+    } catch (error) {
+      notify(error.message, "error");
+    }
   }
 
   async function loadOrder() {

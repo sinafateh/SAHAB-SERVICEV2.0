@@ -24,6 +24,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 SECRET_KEY = settings.jwt_secret_key
 ALGORITHM = settings.jwt_algorithm
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.jwt_expire_minutes
+PRIVILEGED_ROLES = {"ADMIN", "MANAGEMENT"}
 
 # ============================================
 # توابع رمزنگاری
@@ -131,10 +132,10 @@ async def get_current_admin_user(
     """
     بررسی اینکه کاربر ادمین باشد
     """
-    if current_user.role != "ADMIN":
+    if current_user.role not in PRIVILEGED_ROLES:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admin users can perform this action"
+            detail="Only admin or management users can perform this action"
         )
     return current_user
 
@@ -144,7 +145,7 @@ async def get_current_technical_user(
     """
     بررسی اینکه کاربر نقش فنی یا ادمین داشته باشد
     """
-    if current_user.role not in ["ADMIN", "TECHNICAL"]:
+    if current_user.role not in PRIVILEGED_ROLES | {"TECHNICAL"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only technical and admin users can perform this action"
@@ -157,7 +158,7 @@ async def get_current_reception_user(
     """
     بررسی اینکه کاربر نقش پذیرش یا ادمین داشته باشد
     """
-    if current_user.role not in ["ADMIN", "RECEPTION", "CUSTOMER_RELATIONS"]:
+    if current_user.role not in PRIVILEGED_ROLES | {"RECEPTION", "CUSTOMER_RELATIONS"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only reception and admin users can perform this action"

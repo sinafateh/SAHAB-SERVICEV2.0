@@ -8,39 +8,38 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        .users-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+        .role-group { border-top: 4px solid var(--role-color); }
+        .role-group-title { color: var(--role-color); }
+        .role-dot { display:inline-block; width:.7rem; height:.7rem; border-radius:50%; background:var(--role-color); margin-left:.35rem; }
+        @media (max-width: 700px) { .users-toolbar { align-items:stretch; flex-direction:column; } }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow">
-        <div class="container">
-            <a class="navbar-brand" href="/">
-                <i class="fas fa-fire-extinguisher"></i>
-                سیستم مدیریت تعمیرات
-            </a>
-            <a href="/" class="btn btn-light btn-sm">بازگشت</a>
-        </div>
+    <nav class="navbar navbar-dark bg-primary shadow">
+        <div class="container-fluid"><span class="navbar-brand"><i class="fas fa-users"></i> مدیریت کاربران</span></div>
     </nav>
-
-    <div class="container py-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="fas fa-users text-primary"></i> مدیریت کاربران</h2>
-            <button class="btn btn-success" id="addUserBtn">
-                <i class="fas fa-plus"></i> کاربر جدید
-            </button>
-        </div>
-
-        <div class="card shadow">
-            <div class="card-body">
-                <div id="users-table" class="text-center text-muted">
-                    <i class="fas fa-spinner fa-spin"></i> در حال بارگذاری...
-                </div>
+    <main class="container-fluid py-4">
+        <div class="users-toolbar mb-4">
+            <div>
+                <h2 class="mb-1">کاربران سامانه</h2>
+                <p class="text-muted mb-0">مدیرکل و مدیریت می‌توانند کاربران و نقش‌های سازمانی را مدیریت کنند.</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button id="refreshUsersBtn" class="btn btn-outline-primary"><i class="fas fa-sync"></i> بروزرسانی</button>
+                <button id="addUserBtn" class="btn btn-success"><i class="fas fa-plus"></i> کاربر جدید</button>
             </div>
         </div>
-    </div>
 
-    <!-- ✅ ترتیب مهم: اول jQuery، سپس app.js، سپس users.js -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="/static/js/app.js"></script>
-    <script src="/static/js/pages/users.js"></script>
-    <script src="/static/js/sidebar.js"></script>
+        <div class="card shadow-sm mb-4">
+            <div class="card-body" id="users-table">
+                <div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+            </div>
+        </div>
+
+    </main>
+    <script src="/static/js/pages/users.js?v=20260817-3"></script>
+    <script src="/static/js/sidebar.js?v=20260817-1"></script>
 </body>
 </html>

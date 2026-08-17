@@ -103,7 +103,7 @@ function displayUserInfo() {
     
     var usersMenu = document.getElementById('usersMenu');
     if (usersMenu) {
-        usersMenu.style.display = user.role === 'ADMIN' ? 'block' : 'none';
+        usersMenu.style.display = ['ADMIN', 'MANAGEMENT'].includes(user.role) ? 'block' : 'none';
     }
 }
 
@@ -236,23 +236,23 @@ function getStatusBadge(status) {
 function hasRole(role) {
     var user = getUser();
     if (!user) return false;
-    if (user.role === 'ADMIN') return true;
+    if (user.role === 'ADMIN' || user.role === 'MANAGEMENT') return true;
     return user.role === role;
 }
 
 function isAdmin() {
     var user = getUser();
-    return user && user.role === 'ADMIN';
+    return user && (user.role === 'ADMIN' || user.role === 'MANAGEMENT');
 }
 
 function isTechnical() {
     var user = getUser();
-    return user && (user.role === 'ADMIN' || user.role === 'TECHNICAL');
+    return user && (user.role === 'ADMIN' || user.role === 'MANAGEMENT' || user.role === 'TECHNICAL');
 }
 
 function isReception() {
     var user = getUser();
-    return user && (user.role === 'ADMIN' || user.role === 'RECEPTION' || user.role === 'CUSTOMER_RELATIONS');
+    return user && (user.role === 'ADMIN' || user.role === 'MANAGEMENT' || user.role === 'RECEPTION' || user.role === 'CUSTOMER_RELATIONS');
 }
 
 // ============================================

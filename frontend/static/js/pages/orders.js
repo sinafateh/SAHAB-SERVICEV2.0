@@ -5,6 +5,10 @@
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[c]));
   const date = (v) => v ? new Date(v).toLocaleDateString("fa-IR") : "-";
+  const currentUser = () => {
+    try { return JSON.parse(localStorage.getItem("user") || "{}"); } catch { return {}; }
+  };
+  const canDeleteOrders = () => ["ADMIN", "MANAGEMENT"].includes(currentUser().role);
   const stageLabels = {
     RECEPTION_INTAKE: "پذیرش", TECHNICAL_DIAGNOSIS: "فنی",
     MANAGEMENT_PRICING: "قیمت", TECHNICAL_REPAIR: "تعمیر",
@@ -77,6 +81,7 @@
       <div>${escapeHtml(card.customer_name || "مشتری ثبت نشده")}</div>
       <small>${escapeHtml(card.device || "دستگاه ثبت نشده")}</small>
       <div class="small text-muted mt-2"><i class="fas fa-user"></i> ${escapeHtml(card.current_user_name || "بدون مسئول")} · ${date(card.created_at)}</div>
+      ${canDeleteOrders() ? `<button type="button" class="btn btn-sm btn-outline-danger w-100 mt-2" data-delete-order="${card.id}"><i class="fas fa-trash"></i> حذف پرونده</button>` : ""}
     </article>`;
   }
 
@@ -84,6 +89,14 @@
     document.querySelectorAll(".kanban-card").forEach(card => {
       card.addEventListener("dragstart", e => { card.classList.add("dragging"); e.dataTransfer.setData("text/plain", card.dataset.orderId); });
       card.addEventListener("dragend", () => card.classList.remove("dragging"));
+    });
+    document.querySelectorAll("[data-delete-order]").forEach(button => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const order = board?.columns.flatMap(column => column.cards).find(item => Number(item.id) === Number(button.dataset.deleteOrder));
+        if (order) deleteOrder(order);
+      });
     });
     document.querySelectorAll(".kanban-column").forEach(column => {
       column.addEventListener("dragover", e => { e.preventDefault(); column.classList.add("is-over"); });
@@ -124,6 +137,26 @@
     } catch (error) {
       Swal.fire({ icon: "error", text: error.message });
       render();
+    }
+  }
+
+  async function deleteOrder(order) {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "حذف پرونده",
+      text: `پرونده ${order.tracking_code || order.id} به‌صورت کامل حذف شود؟`,
+      showCancelButton: true,
+      confirmButtonText: "بله، حذف شود",
+      cancelButtonText: "انصراف",
+      confirmButtonColor: "#dc3545",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await api(`/reception/repair-orders/${order.id}`, { method: "DELETE" });
+      await loadBoard();
+      Swal.fire({ icon: "success", text: "پرونده حذف شد.", timer: 1400, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: "error", text: error.message });
     }
   }
 

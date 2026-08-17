@@ -82,7 +82,7 @@
   document.body.classList.add("has-app-sidebar");
   document.body.prepend(aside);
 
-  if (user?.role !== "ADMIN") {
+  if (!["ADMIN", "MANAGEMENT"].includes(user?.role)) {
     aside.querySelectorAll("[data-admin-only]").forEach((item) => item.remove());
   }
   aside.querySelector("[data-logout]")?.addEventListener("click", () => {
