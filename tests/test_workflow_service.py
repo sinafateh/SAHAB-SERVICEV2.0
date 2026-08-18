@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import (
+    Attachment,
     Base,
     Customer,
     Notification,
@@ -145,6 +146,128 @@ class WorkflowServiceTest(unittest.TestCase):
         self.assertGreaterEqual(completed.duration_seconds, 0)
         self.assertEqual(self.session.query(TechnicalStageTiming).count(), 1)
         self.assertEqual(self.session.query(CaseTimelineEvent).count(), 4)
+
+    def test_technical_repair_must_return_to_diagnosing_technician_and_final_test_must_be_different(self):
+        management = User(
+            username="management",
+            password_hash="x",
+            full_name="مدیریت",
+            role="MANAGEMENT",
+            department="MANAGEMENT",
+            is_active=True,
+        )
+        self.session.add(management)
+        self.session.flush()
+
+        diagnosis_transfer = WorkflowService.transfer_order(
+            self.session,
+            self.order,
+            self.reception,
+            self.tech_one.id,
+            "TECHNICAL_DIAGNOSIS",
+            "TECHNICAL",
+        )
+        WorkflowService.receive_transition(self.session, diagnosis_transfer.id, self.tech_one)
+        WorkflowService.apply_action(
+            self.session,
+            self.order,
+            self.tech_one,
+            "DIAGNOSIS",
+            "عیب‌یابی انجام شد",
+        )
+        self.session.refresh(self.order)
+
+        management_transfer = WorkflowService.transfer_order(
+            self.session,
+            self.order,
+            self.tech_one,
+            management.id,
+            "MANAGEMENT_PRICING",
+            "MANAGEMENT",
+        )
+        WorkflowService.receive_transition(self.session, management_transfer.id, management)
+
+        with self.assertRaises(Exception):
+            WorkflowService.transfer_order(
+                self.session,
+                self.order,
+                management,
+                self.tech_two.id,
+                "TECHNICAL_REPAIR",
+                "TECHNICAL",
+            )
+
+        repair_transfer = WorkflowService.transfer_order(
+            self.session,
+            self.order,
+            management,
+            self.tech_one.id,
+            "TECHNICAL_REPAIR",
+            "TECHNICAL",
+        )
+        WorkflowService.receive_transition(self.session, repair_transfer.id, self.tech_one)
+        WorkflowService.apply_action(
+            self.session,
+            self.order,
+            self.tech_one,
+            "REPAIR_COMPLETE",
+            "تعمیر انجام شد",
+        )
+        self.session.refresh(self.order)
+
+        with self.assertRaises(Exception):
+            WorkflowService.transfer_order(
+                self.session,
+                self.order,
+                self.tech_one,
+                self.tech_one.id,
+                "TECHNICAL_FINAL_TEST",
+                "TECHNICAL",
+            )
+
+        final_test_transfer = WorkflowService.transfer_order(
+            self.session,
+            self.order,
+            self.tech_one,
+            self.tech_two.id,
+            "TECHNICAL_FINAL_TEST",
+            "TECHNICAL",
+        )
+        self.assertEqual(final_test_transfer.to_user_id, self.tech_two.id)
+
+    def test_delivery_requires_receipt_and_closed_case_is_locked(self):
+        self.order.current_stage = "RECEPTION_DELIVERY"
+        self.order.status = OrderStatus.READY_DELIVERY
+        self.order.current_user_id = self.reception.id
+        self.session.commit()
+
+        with self.assertRaises(Exception):
+            WorkflowService.apply_action(self.session, self.order, self.reception, "DELIVER")
+
+        self.session.add(
+            Attachment(
+                file_name="delivery-receipt.pdf",
+                file_path="/uploads/attachments/1/delivery-receipt.pdf",
+                file_type="pdf",
+                stage="DELIVERY",
+                is_delivery_receipt=True,
+                repair_order_id=self.order.id,
+                uploaded_by=self.reception.id,
+            )
+        )
+        self.session.commit()
+        WorkflowService.apply_action(self.session, self.order, self.reception, "DELIVER")
+        self.session.refresh(self.order)
+        self.assertEqual(self.order.current_stage, "COMPLETED")
+        self.assertEqual(self.order.status, OrderStatus.DELIVERED)
+
+        with self.assertRaises(Exception):
+            WorkflowService.start_timing(
+                self.session,
+                self.order,
+                self.reception,
+                "TECHNICAL_DIAGNOSIS",
+            )
 
 
 if __name__ == "__main__":

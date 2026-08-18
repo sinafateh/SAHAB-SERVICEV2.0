@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_active_user
 from app.database import get_db
-from app.models.repair_order import RepairOrder
+from app.models.repair_order import OrderStatus, RepairOrder
 from app.models.attachment import Attachment
 from app.models.case_timeline_event import CaseTimelineEvent
 from app.models.technical_stage_timing import TechnicalStageTiming
@@ -327,9 +327,13 @@ def get_case_timeline(
                 "title": "ثبت فایل مرحله‌ای",
                 "description": item.file_name,
                 "stage": getattr(item, "stage", None),
-                "actor_name": None,
+                "actor_name": getattr(item, "uploaded_by_name", None),
                 "created_at": item.uploaded_at,
-                "metadata": {"attachment_id": item.id, "file_path": item.file_path},
+                "metadata": {
+                    "attachment_id": item.id,
+                    "file_path": item.file_path,
+                    "uploaded_by_department": getattr(item, "uploaded_by_department", None),
+                },
             }
         )
     for item in status_history:
@@ -399,8 +403,19 @@ def get_kanban_board(
         .order_by(RepairOrder.created_at.asc())
         .all()
     )
+    pending_transitions = {
+        item.repair_order_id: item
+        for item in db.query(WorkflowTransition)
+        .options(joinedload(WorkflowTransition.to_user))
+        .filter(
+            WorkflowTransition.repair_order_id.in_([item.id for item in orders]) if orders else False,
+            WorkflowTransition.status == "PENDING",
+        )
+        .all()
+    }
     for order in orders:
         column = by_stage.get(stage_aliases.get(order.current_stage, order.current_stage)) or by_stage["RECEPTION_INTAKE"]
+        pending = pending_transitions.get(order.id)
         customer_name = None
         if order.customer:
             customer_name = " ".join(
@@ -415,6 +430,10 @@ def get_kanban_board(
                 "tracking_code": order.tracking_code,
                 "current_stage": order.current_stage,
                 "status": order.status.value if hasattr(order.status, "value") else order.status,
+                "display_status": "PENDING_TRANSFER" if pending else (order.status.value if hasattr(order.status, "value") else order.status),
+                "is_pending_transfer": bool(pending),
+                "pending_to_user_name": pending.to_user.full_name if pending and pending.to_user else None,
+                "pending_stage": pending.stage if pending else None,
                 "current_user_id": order.current_user_id,
                 "current_user_name": order.current_user.full_name if order.current_user else None,
                 "customer_name": customer_name,
@@ -423,6 +442,68 @@ def get_kanban_board(
             }
         )
     return {"columns": columns}
+
+
+@router.get("/closed-orders")
+def get_closed_orders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    orders = (
+        db.query(RepairOrder)
+        .options(
+            joinedload(RepairOrder.customer),
+            joinedload(RepairOrder.panel),
+            joinedload(RepairOrder.current_user),
+        )
+        .filter(
+            RepairOrder.status.in_(
+                [OrderStatus.DELIVERED, OrderStatus.CLOSED_NO_REPAIR]
+            )
+        )
+        .order_by(RepairOrder.delivered_at.desc(), RepairOrder.created_at.desc())
+        .all()
+    )
+    return {
+        "total": len(orders),
+        "orders": [
+            {
+                "id": order.id,
+                "tracking_code": order.tracking_code,
+                "status": order.status.value if hasattr(order.status, "value") else order.status,
+                "current_stage": order.current_stage,
+                "customer_name": (
+                    (
+                        " ".join(
+                            part
+                            for part in [
+                                getattr(order.customer, "name", None),
+                                getattr(order.customer, "last_name", None),
+                            ]
+                            if part
+                        )
+                        or getattr(order.customer, "company", None)
+                    )
+                    if order.customer
+                    else None
+                ),
+                "customer_phone": getattr(order.customer, "phone", None) if order.customer else None,
+                "device": (
+                    f"{getattr(order.panel, 'brand', '') or ''} "
+                    f"{getattr(order.panel, 'model', '') or ''}"
+                ).strip()
+                if order.panel
+                else None,
+                "serial_number": getattr(order.panel, "serial_number", None) if order.panel else None,
+                "delivered_at": order.delivered_at,
+                "created_at": order.created_at,
+                "current_user_name": (
+                    order.current_user.full_name if order.current_user else None
+                ),
+            }
+            for order in orders
+        ],
+    }
 
 
 @router.post("/kanban/orders/{repair_order_id}/move", response_model=WorkflowTransitionResponse, status_code=201)

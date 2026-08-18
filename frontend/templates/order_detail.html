@@ -14,6 +14,19 @@
         .case-timeline-item { position:relative; padding:0 0 1rem 0; }
         .case-timeline-dot { position:absolute; right:-1.5rem; top:.25rem; width:12px; height:12px; border-radius:50%; background:#0d6efd; border:3px solid #dbeafe; }
         .case-timeline-content { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem; }
+        .case-tabs { overflow-x:auto; flex-wrap:nowrap; }
+        .case-tabs .nav-link { white-space:nowrap; }
+        .case-receipt { background:#fff; }
+        .case-receipt-header { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1rem; border:1px solid #dbe4f0; border-radius:12px; background:#f8fbff; margin-bottom:1rem; }
+        .tracking-code { font-size:1.35rem; }
+        .case-info-section { border:1px solid #e5e7eb; border-radius:12px; padding:1rem; margin-bottom:1rem; }
+        .case-info-section h5 { color:#0d6efd; border-bottom:2px solid #dbeafe; padding-bottom:.6rem; margin-bottom:.75rem; }
+        .case-detail-row { display:flex; justify-content:space-between; gap:1rem; border-bottom:1px dashed #e5e7eb; padding:.45rem 0; }
+        .case-detail-row:last-child { border-bottom:0; }
+        .case-detail-label { color:#6b7280; font-weight:600; min-width:170px; }
+        .case-detail-value { text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; }
+        .case-note { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.85rem; white-space:pre-wrap; }
+        @media (max-width: 600px) { .case-detail-row { display:block; } .case-detail-value { display:block; text-align:right; margin-top:.2rem; } }
     </style>
 </head>
 <body>
@@ -67,7 +80,7 @@
         
         console.log('📄 order_detail لود شد - ID:', orderId);
     </script>
-    <script src="/static/js/pages/order_detail.js?v=20260817-1"></script>
-    <script src="/static/js/sidebar.js?v=20260817-1"></script>
+    <script src="/static/js/pages/order_detail.js?v=20260818-1"></script>
+    <script src="/static/js/sidebar.js?v=20260818-2"></script>
 </body>
 </html>

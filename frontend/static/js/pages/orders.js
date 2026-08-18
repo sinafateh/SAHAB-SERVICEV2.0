@@ -73,14 +73,15 @@
   }
 
   function cardHtml(card) {
-    return `<article class="kanban-card" draggable="true" data-order-id="${card.id}">
+    return `<article class="kanban-card ${card.is_pending_transfer ? "pending-transfer" : ""}" draggable="true" data-order-id="${card.id}">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <a href="/order/${card.id}" class="fw-bold text-decoration-none">${escapeHtml(card.tracking_code)}</a>
-        <span class="badge bg-light text-dark">${escapeHtml(stageLabels[card.current_stage] || card.current_stage || "-")}</span>
+        <span class="badge ${card.is_pending_transfer ? "pending-transfer-badge" : "bg-light text-dark"}">${card.is_pending_transfer ? "در انتظار انتقال" : escapeHtml(stageLabels[card.current_stage] || card.current_stage || "-")}</span>
       </div>
       <div>${escapeHtml(card.customer_name || "مشتری ثبت نشده")}</div>
       <small>${escapeHtml(card.device || "دستگاه ثبت نشده")}</small>
       <div class="small text-muted mt-2"><i class="fas fa-user"></i> ${escapeHtml(card.current_user_name || "بدون مسئول")} · ${date(card.created_at)}</div>
+      ${card.is_pending_transfer ? `<div class="small text-warning-emphasis mt-1"><i class="fas fa-hourglass-half"></i> گیرنده: ${escapeHtml(card.pending_to_user_name || "در انتظار پاسخ")}</div>` : ""}
       ${canDeleteOrders() ? `<button type="button" class="btn btn-sm btn-outline-danger w-100 mt-2" data-delete-order="${card.id}"><i class="fas fa-trash"></i> حذف پرونده</button>` : ""}
     </article>`;
   }
@@ -144,15 +145,23 @@
     const result = await Swal.fire({
       icon: "warning",
       title: "حذف پرونده",
-      text: `پرونده ${order.tracking_code || order.id} به‌صورت کامل حذف شود؟`,
+      html: `این عملیات فقط با تأیید مدیر انجام می‌شود.<br>برای تأیید عبارت <code>DELETE_REPAIR_ORDER</code> را وارد کنید.<input id="deleteConfirmation" class="swal2-input" placeholder="عبارت تأیید">`,
       showCancelButton: true,
-      confirmButtonText: "بله، حذف شود",
+      confirmButtonText: "تأیید مدیر و حذف",
       cancelButtonText: "انصراف",
       confirmButtonColor: "#dc3545",
+      preConfirm: () => {
+        const confirmation = document.getElementById("deleteConfirmation").value.trim();
+        if (confirmation !== "DELETE_REPAIR_ORDER") {
+          Swal.showValidationMessage("عبارت تأیید صحیح نیست.");
+          return false;
+        }
+        return { confirmation };
+      },
     });
     if (!result.isConfirmed) return;
     try {
-      await api(`/reception/repair-orders/${order.id}`, { method: "DELETE" });
+      await api(`/reception/repair-orders/${order.id}`, { method: "DELETE", body: JSON.stringify(result.value) });
       await loadBoard();
       Swal.fire({ icon: "success", text: "پرونده حذف شد.", timer: 1400, showConfirmButton: false });
     } catch (error) {

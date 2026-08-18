@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status as http_status, Form
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from typing import Optional, List
 import os
 import shutil
@@ -144,6 +144,13 @@ class StatusUpdateRequest(BaseModel):
     status: str
     reason: Optional[str] = None
 
+
+class DeleteRepairOrderRequest(BaseModel):
+    confirmation: str = Field(..., min_length=10, max_length=50)
+
+
+DELETE_REPAIR_ORDER_CONFIRMATION = "DELETE_REPAIR_ORDER"
+
 # ============================================
 # توابع کمکی
 # ============================================
@@ -177,9 +184,18 @@ def format_order_response(order: RepairOrder) -> dict:
     return {
         "id": order.id,
         "tracking_code": order.tracking_code,
+        "qr_code": order.qr_code,
+        "operator_name": order.operator_name,
         "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
         "current_stage": order.current_stage,
         "current_user_id": order.current_user_id,
+        "current_user_name": order.current_user.full_name if order.current_user else None,
+        "diagnosed_by_user_id": order.diagnosed_by_user_id,
+        "diagnosed_by_user_name": order.diagnosed_by_user.full_name if order.diagnosed_by_user else None,
+        "repaired_by_user_id": order.repaired_by_user_id,
+        "repaired_by_user_name": order.repaired_by_user.full_name if order.repaired_by_user else None,
+        "final_tested_by_user_id": order.final_tested_by_user_id,
+        "final_tested_by_user_name": order.final_tested_by_user.full_name if order.final_tested_by_user else None,
         "quoted_price": order.quoted_price,
         "price_notes": order.price_notes,
         "diagnosis_notes": order.diagnosis_notes,
@@ -199,16 +215,61 @@ def format_order_response(order: RepairOrder) -> dict:
         "customer_complaint": order.customer_complaint,
         "notes": order.notes,
         "priority": order.priority,
+        "sender_name": order.sender_name,
+        "sender_position": order.sender_position,
+        "sender_phone": order.sender_phone,
+        "sender_landline": order.sender_landline,
+        "delivery_method": order.delivery_method.value if hasattr(order.delivery_method, "value") else order.delivery_method,
+        "courier_company": order.courier_company,
+        "courier_tracking": order.courier_tracking,
+        "physical_damages": order.physical_damages or [],
+        "physical_description": order.physical_description,
+        "accessories": order.accessories or [],
+        "accessories_description": order.accessories_description,
         "created_at": order.created_at,
         "customer_name": order.customer.name if order.customer else None,
         "customer_company": order.customer.company if order.customer else None,
         "customer_phone": order.customer.phone if order.customer else None,
         "customer_address": order.customer.address if order.customer else None,
+        "site": {
+            "name": order.site.name if order.site else None,
+            "type": order.site.type.value if order.site and hasattr(order.site.type, "value") else (order.site.type if order.site else None),
+            "address": order.site.address if order.site else None,
+            "location": order.site.location if order.site else None,
+            "building_name": order.site.building_name if order.site else None,
+            "building_manager": order.site.building_manager if order.site else None,
+            "manager_phone": order.site.manager_phone if order.site else None,
+            "lobby_phone": order.site.lobby_phone if order.site else None,
+            "responsible_name": order.site.responsible_name if order.site else None,
+            "responsible_position": order.site.responsible_position if order.site else None,
+            "responsible_phone": order.site.responsible_phone if order.site else None,
+        },
+        "panel": {
+            "brand": order.panel.brand if order.panel else None,
+            "model": order.panel.model if order.panel else None,
+            "serial_number": order.panel.serial_number if order.panel else None,
+            "part_number": order.panel.part_number if order.panel else None,
+            "firmware_version": order.panel.firmware_version if order.panel else None,
+            "hardware_version": order.panel.hardware_version if order.panel else None,
+            "loops_count": order.panel.loops_count if order.panel else None,
+            "zones_count": order.panel.zones_count if order.panel else None,
+            "installation_year": order.panel.installation_year if order.panel else None,
+        },
+        "boards": [
+            {
+                "board_type": board.board_type.value if hasattr(board.board_type, "value") else str(board.board_type),
+                "part_number": board.part_number,
+                "serial_number": board.serial_number,
+                "revision": board.revision,
+                "description": board.description,
+            }
+            for board in getattr(order, "boards", []) or []
+        ],
         # ✅ تغییر: استفاده از panel به جای device
         "device_brand": order.panel.brand if order.panel else None,
         "device_model": order.panel.model if order.panel else None,
         "device_part_number": order.panel.part_number if order.panel else None,
-        "device_serial_number": order.panel.serial_number if order.panel else None
+        "device_serial_number": order.panel.serial_number if order.panel else None,
     }
 
 # ============================================
@@ -519,7 +580,12 @@ def get_repair_order(
         order = db.query(RepairOrder).options(
             joinedload(RepairOrder.customer),
             joinedload(RepairOrder.panel),  # ✅ تغییر از device به panel
-            joinedload(RepairOrder.site)    # ✅ اضافه کردن site
+            joinedload(RepairOrder.site),    # ✅ اضافه کردن site
+            joinedload(RepairOrder.current_user),
+            joinedload(RepairOrder.diagnosed_by_user),
+            joinedload(RepairOrder.repaired_by_user),
+            joinedload(RepairOrder.final_tested_by_user),
+            selectinload(RepairOrder.boards),
         ).filter(RepairOrder.id == order_id).first()
         
         if not order:
@@ -543,10 +609,16 @@ def get_repair_order(
 @router.delete("/repair-orders/{order_id}")
 def delete_repair_order(
     order_id: int,
+    payload: DeleteRepairOrderRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user),
 ):
     """حذف یک پرونده؛ فقط مدیرکل و مدیریت مجاز هستند."""
+    if payload.confirmation != DELETE_REPAIR_ORDER_CONFIRMATION:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=f"برای حذف باید عبارت {DELETE_REPAIR_ORDER_CONFIRMATION} تأیید شود.",
+        )
     order = db.query(RepairOrder).filter(RepairOrder.id == order_id).first()
     if not order:
         raise HTTPException(
@@ -954,6 +1026,7 @@ async def upload_file(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     stage: Optional[str] = Form("GENERAL"),
+    is_delivery_receipt: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -973,6 +1046,13 @@ async def upload_file(
         stage = (stage or "GENERAL").upper()
         if stage not in allowed_stages:
             raise HTTPException(status_code=400, detail="دسته‌بندی مرحله‌ای فایل معتبر نیست.")
+        from app.services.workflow_service import WorkflowService
+        WorkflowService.ensure_case_editable(order, current_user)
+        if is_delivery_receipt and stage != "DELIVERY":
+            raise HTTPException(
+                status_code=400,
+                detail="رسید تحویل فقط باید در مرحله تحویل ثبت شود.",
+            )
         if current_user.role not in PRIVILEGED_ROLES and order.current_user_id not in {None, current_user.id}:
             raise HTTPException(status_code=403, detail="این پرونده در اختیار شما نیست.")
 
@@ -1012,7 +1092,10 @@ async def upload_file(
             description=description,
             stage=stage,
             repair_order_id=order_id,
-            uploaded_by=current_user.id
+            uploaded_by=current_user.id,
+            uploaded_by_name=current_user.full_name,
+            uploaded_by_department=current_user.department or current_user.role,
+            is_delivery_receipt=is_delivery_receipt,
         )
         db.add(attachment)
         db.flush()
@@ -1040,6 +1123,10 @@ async def upload_file(
             "file_type": attachment.file_type,
             "file_size": attachment.file_size,
             "stage": attachment.stage,
+            "uploaded_by": attachment.uploaded_by,
+            "uploaded_by_name": attachment.uploaded_by_name,
+            "uploaded_by_department": attachment.uploaded_by_department,
+            "is_delivery_receipt": attachment.is_delivery_receipt,
         }
     
     except HTTPException:
@@ -1060,7 +1147,8 @@ async def upload_file(
 @router.get("/repair-orders/{order_id}/attachments")
 def get_attachments(
     order_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """دریافت لیست فایل‌های ضمیمه - عمومی (بدون نیاز به احراز هویت)"""
     try:
@@ -1074,8 +1162,31 @@ def get_attachments(
         attachments = db.query(Attachment).filter(
             Attachment.repair_order_id == order_id
         ).order_by(Attachment.uploaded_at.desc()).all()
-        
-        return attachments
+        result = []
+        for item in attachments:
+            uploader = None
+            if item.uploaded_by:
+                uploader = db.query(User).filter(User.id == item.uploaded_by).first()
+            result.append(
+                {
+                    "id": item.id,
+                    "file_name": item.file_name,
+                    "file_path": item.file_path,
+                    "file_type": item.file_type,
+                    "file_size": item.file_size,
+                    "mime_type": item.mime_type,
+                    "description": item.description,
+                    "stage": item.stage,
+                    "is_physical_damage": item.is_physical_damage,
+                    "uploaded_by": item.uploaded_by,
+                    "uploaded_by_name": item.uploaded_by_name or (uploader.full_name if uploader else None),
+                    "uploaded_by_department": item.uploaded_by_department or (uploader.department if uploader else None),
+                    "uploaded_at": item.uploaded_at,
+                    "is_delivery_receipt": item.is_delivery_receipt,
+                    "can_delete": current_user.role in PRIVILEGED_ROLES or item.uploaded_by == current_user.id,
+                }
+            )
+        return result
     
     except HTTPException:
         raise
@@ -1093,7 +1204,7 @@ def get_attachments(
 def delete_attachment(
     attachment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_reception_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """حذف فایل ضمیمه - نیاز به نقش پذیرش یا ادمین"""
     logger.info(f"حذف فایل {attachment_id} توسط: {current_user.username}")
@@ -1105,11 +1216,38 @@ def delete_attachment(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="فایل مورد نظر یافت نشد"
             )
+
+        order = db.query(RepairOrder).filter(RepairOrder.id == attachment.repair_order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail="پرونده مرتبط با فایل پیدا نشد")
+        from app.services.workflow_service import WorkflowService
+        WorkflowService.ensure_case_editable(order, current_user)
+        if current_user.role not in PRIVILEGED_ROLES and attachment.uploaded_by != current_user.id:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="فقط آپلودکننده یا مدیر می‌تواند این عکس را حذف کند.",
+            )
         
-        file_path = os.path.join(settings.upload_dir, attachment.file_path.lstrip("/uploads/"))
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        upload_root = Path(settings.upload_dir).resolve()
+        relative_path = attachment.file_path.removeprefix("/uploads/").lstrip("/\\")
+        file_path = (upload_root / relative_path).resolve()
+        if upload_root in file_path.parents and file_path.is_file():
+            file_path.unlink()
         
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "ATTACHMENT_DELETED",
+            "حذف فایل پرونده",
+            f"{current_user.full_name} فایل «{attachment.file_name}» را حذف کرد.",
+            attachment.stage,
+            {
+                "attachment_id": attachment.id,
+                "file_name": attachment.file_name,
+                "uploaded_by_name": attachment.uploaded_by_name,
+            },
+        )
         db.delete(attachment)
         db.commit()
         
@@ -1604,7 +1742,9 @@ async def create_repair_order_v2(
                         is_physical_damage=True,
                         stage="RECEPTION",
                         repair_order_id=repair_order.id,
-                        uploaded_by=current_user.id
+                        uploaded_by=current_user.id,
+                        uploaded_by_name=current_user.full_name,
+                        uploaded_by_department=current_user.department or current_user.role,
                     )
                     db.add(attachment)
                     logger.info(f"  ✅ عکس {idx+1} آپلود شد: {relative_path}")
@@ -1740,7 +1880,9 @@ async def create_repair_order_v2(
                         is_physical_damage=True,
                         stage="RECEPTION",
                         repair_order_id=repair_order.id,
-                        uploaded_by=current_user.id
+                        uploaded_by=current_user.id,
+                        uploaded_by_name=current_user.full_name,
+                        uploaded_by_department=current_user.department or current_user.role,
                     )
                     db.add(attachment)
                 except Exception as e:

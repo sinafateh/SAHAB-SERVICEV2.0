@@ -199,6 +199,10 @@ async def orders_page():
     return read_html_file("orders.html")
 
 
+@app.get("/closed-orders", response_class=HTMLResponse)
+async def closed_orders_page():
+    return read_html_file("closed_orders.html")
+
 @app.get("/new-order", response_class=HTMLResponse)
 async def new_order_page():
     """

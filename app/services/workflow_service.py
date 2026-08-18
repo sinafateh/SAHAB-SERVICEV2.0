@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import PRIVILEGED_ROLES
+from app.models.attachment import Attachment
 from app.models.notification import Notification
 from app.models.case_timeline_event import CaseTimelineEvent
 from app.models.repair_order import OrderStatus, RepairOrder
@@ -74,6 +75,7 @@ TECHNICAL_TIMED_STAGES = {
     "TECHNICAL_REPAIR",
     "TECHNICAL_FINAL_TEST",
 }
+TERMINAL_STAGES = {"COMPLETED", "CLOSED_NO_REPAIR"}
 
 
 def utc_now() -> datetime:
@@ -81,6 +83,17 @@ def utc_now() -> datetime:
 
 
 class WorkflowService:
+    @staticmethod
+    def ensure_case_editable(order: RepairOrder, current_user: User) -> None:
+        if (
+            order.current_stage in TERMINAL_STAGES
+            or order.status in {OrderStatus.DELIVERED, OrderStatus.CLOSED_NO_REPAIR}
+        ) and current_user.role not in PRIVILEGED_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="پرونده مختومه است و فقط مدیریت می‌تواند آن را تغییر دهد.",
+            )
+
     @staticmethod
     def effective_department(user: User) -> Optional[str]:
         return getattr(user, "department", None) or ROLE_DEPARTMENT.get(user.role)
@@ -134,6 +147,7 @@ class WorkflowService:
 
     @staticmethod
     def ensure_sender_can_transfer(order: RepairOrder, current_user: User) -> None:
+        WorkflowService.ensure_case_editable(order, current_user)
         if current_user.role in PRIVILEGED_ROLES:
             return
         if order.current_user_id and order.current_user_id != current_user.id:
@@ -237,6 +251,28 @@ class WorkflowService:
 
         if recipient.id == current_user.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="انتقال به خود کاربر مجاز نیست")
+        if stage == "TECHNICAL_REPAIR":
+            if not order.diagnosed_by_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="ابتدا باید عیب‌یابی توسط یک تکنسین ثبت شود.",
+                )
+            if recipient.id != order.diagnosed_by_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="تعمیر باید به همان تکنسینی ارجاع شود که عیب‌یابی را انجام داده است.",
+                )
+        if stage == "TECHNICAL_FINAL_TEST":
+            prohibited_ids = {
+                item
+                for item in (order.diagnosed_by_user_id, order.repaired_by_user_id, current_user.id)
+                if item
+            }
+            if recipient.id in prohibited_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="تست نهایی باید توسط تکنسینی غیر از عیب‌یاب و تعمیرکار انجام شود.",
+                )
         if WorkflowService.pending_transition(db, order.id):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="برای این پرونده یک انتقال باز وجود دارد")
 
@@ -304,6 +340,7 @@ class WorkflowService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="این درخواست قبلاً تعیین تکلیف شده است")
 
         order = transition.repair_order
+        WorkflowService.ensure_case_editable(order, current_user)
         old_status = order.status
         config = WorkflowService.validate_stage(transition.stage or "RECEPTION_INTAKE")
         transition.status = "RECEIVED"
@@ -377,6 +414,7 @@ class WorkflowService:
             transition.repair_order_id,
         )
         order = transition.repair_order
+        WorkflowService.ensure_case_editable(order, current_user)
         WorkflowService.add_timeline_event(
             db,
             order,
@@ -406,6 +444,7 @@ class WorkflowService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="فقط فرستنده می‌تواند گیرنده را تغییر دهد")
         if transition.status != "PENDING":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="فقط انتقال باز قابل تغییر است")
+        WorkflowService.ensure_case_editable(transition.repair_order, current_user)
 
         recipient, department = WorkflowService.validate_recipient(
             db, to_user_id, transition.stage or "RECEPTION_INTAKE", to_department
@@ -447,6 +486,7 @@ class WorkflowService:
         quoted_price: Optional[Decimal] = None,
         approved: Optional[bool] = None,
     ) -> RepairOrder:
+        WorkflowService.ensure_case_editable(order, current_user)
         if order.current_user_id and order.current_user_id != current_user.id and current_user.role not in PRIVILEGED_ROLES:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="این پرونده در اختیار شما نیست")
 
@@ -459,6 +499,7 @@ class WorkflowService:
                 raise HTTPException(status_code=403, detail="ثبت عیب‌یابی فقط برای بخش فنی است")
             order.diagnosis_notes = notes
             order.diagnosis_date = now
+            order.diagnosed_by_user_id = current_user.id
         elif action == "PRICING":
             if department != "MANAGEMENT":
                 raise HTTPException(status_code=403, detail="تعیین قیمت فقط برای مدیریت است")
@@ -485,20 +526,52 @@ class WorkflowService:
                 raise HTTPException(status_code=403, detail="ثبت پایان تعمیر فقط برای بخش فنی است")
             order.repair_notes = notes
             order.repair_complete_date = now
+            order.repaired_by_user_id = current_user.id
         elif action == "FINAL_TEST":
             if department != "TECHNICAL":
                 raise HTTPException(status_code=403, detail="ثبت تست نهایی فقط برای بخش فنی است")
             order.final_test_notes = notes
             if approved is False:
                 raise HTTPException(status_code=400, detail="برای تست ناموفق باید پرونده به تعمیر بازگردانده شود")
+            if current_user.id in {
+                item for item in (order.diagnosed_by_user_id, order.repaired_by_user_id) if item
+            }:
+                raise HTTPException(
+                    status_code=400,
+                    detail="تست نهایی باید توسط تکنسینی غیر از عیب‌یاب و تعمیرکار انجام شود.",
+                )
             order.status = OrderStatus.FINAL_CONTROL
+            order.final_tested_by_user_id = current_user.id
         elif action == "DELIVER":
             if department not in {"RECEPTION", "CUSTOMER_RELATIONS"}:
                 raise HTTPException(status_code=403, detail="تحویل فقط برای پذیرش یا ارتباط با مشتریان است")
+            receipt = (
+                db.query(Attachment)
+                .filter(
+                    Attachment.repair_order_id == order.id,
+                    Attachment.stage == "DELIVERY",
+                    Attachment.is_delivery_receipt.is_(True),
+                )
+                .first()
+            )
+            if not receipt:
+                raise HTTPException(
+                    status_code=400,
+                    detail="برای مختومه‌کردن پرونده، رسید تحویل مشتری باید ابتدا بارگذاری شود.",
+                )
+            old_status = order.status
             order.delivered_at = now
             order.final_delivery_date = now
             order.status = OrderStatus.DELIVERED
             order.current_stage = "COMPLETED"
+            WorkflowService.add_history(
+                db,
+                order,
+                current_user,
+                old_status,
+                order.status,
+                "پرونده پس از بارگذاری رسید تحویل مشتری بسته شد.",
+            )
         else:
             raise HTTPException(status_code=400, detail="عملیات workflow معتبر نیست")
 
@@ -531,6 +604,7 @@ class WorkflowService:
 
     @staticmethod
     def _ensure_timing_access(order: RepairOrder, current_user: User, stage: str) -> None:
+        WorkflowService.ensure_case_editable(order, current_user)
         if stage not in TECHNICAL_TIMED_STAGES:
             raise HTTPException(status_code=400, detail="Technical timing is only available for technical stages.")
         if order.current_stage != stage:

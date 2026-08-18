@@ -20,6 +20,9 @@ class Attachment(Base):
     is_physical_damage = Column(Boolean, default=False)  # آیا عکس برای وضعیت ظاهری است
     
     uploaded_by = Column(Integer, nullable=True)
+    uploaded_by_name = Column(String(100), nullable=True)
+    uploaded_by_department = Column(String(50), nullable=True)
+    is_delivery_receipt = Column(Boolean, nullable=False, default=False, server_default="false")
     uploaded_at = Column(DateTime, server_default=func.now())
     repair_order_id = Column(Integer, ForeignKey("repair_orders.id", ondelete="CASCADE"), nullable=False)
     

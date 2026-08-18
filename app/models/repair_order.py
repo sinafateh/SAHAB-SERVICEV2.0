@@ -55,6 +55,9 @@ class RepairOrder(Base):
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.REGISTERED)
     current_stage = Column(String(50), nullable=False, default="RECEPTION_INTAKE", index=True)
     current_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    diagnosed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    repaired_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    final_tested_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # اطلاعات پذیرش (Auto)
     reception_date = Column(DateTime, server_default=func.now())
@@ -121,6 +124,9 @@ class RepairOrder(Base):
     site = relationship("Site", backref="repair_orders")
     panel = relationship("Panel", backref="panel_repair_orders")  # ✅ نام یکتا
     current_user = relationship("User", foreign_keys=[current_user_id])
+    diagnosed_by_user = relationship("User", foreign_keys=[diagnosed_by_user_id])
+    repaired_by_user = relationship("User", foreign_keys=[repaired_by_user_id])
+    final_tested_by_user = relationship("User", foreign_keys=[final_tested_by_user_id])
     transitions = relationship(
         "WorkflowTransition",
         back_populates="repair_order",

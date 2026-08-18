@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  if (window.location.pathname === "/login" || window.location.pathname === "/") {
+  if (
+    window.location.pathname === "/login" ||
+    window.location.pathname === "/"
+  ) {
     return;
   }
 
@@ -72,6 +75,7 @@
     <nav class="app-sidebar-nav">
       <a href="/panel" class="${active("/panel") ? "active" : ""}"><i class="fas fa-user me-2"></i> پنل من</a>
       <a href="/orders" class="${active("/orders") || active("/order") ? "active" : ""}"><i class="fas fa-folder-open me-2"></i> پرونده‌ها</a>
+      <a href="/closed-orders" class="${active("/closed-orders") ? "active" : ""}"><i class="fas fa-folder-closed me-2"></i> پرونده‌های بسته شده</a>
       <a href="/new-order" class="${active("/new-order") ? "active" : ""}"><i class="fas fa-plus-circle me-2"></i> پرونده جدید</a>
       <a href="/dashboard" class="${active("/dashboard") ? "active" : ""}" data-admin-only><i class="fas fa-chart-line me-2"></i> داشبورد مدیریتی</a>
       <a href="/users" class="${active("/users") ? "active" : ""}" data-admin-only><i class="fas fa-users me-2"></i> کاربران</a>
@@ -83,7 +87,9 @@
   document.body.prepend(aside);
 
   if (!["ADMIN", "MANAGEMENT"].includes(user?.role)) {
-    aside.querySelectorAll("[data-admin-only]").forEach((item) => item.remove());
+    aside
+      .querySelectorAll("[data-admin-only]")
+      .forEach((item) => item.remove());
   }
   aside.querySelector("[data-logout]")?.addEventListener("click", () => {
     localStorage.clear();
