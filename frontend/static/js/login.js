@@ -1,5 +1,17 @@
 const loginForm = document.getElementById("loginForm");
 const alertBox = document.getElementById("alertBox");
+const passwordInput = document.getElementById("password");
+const passwordToggle = document.getElementById("passwordToggle");
+
+passwordToggle?.addEventListener("click", () => {
+  if (!passwordInput) return;
+  const visible = passwordInput.type === "text";
+  passwordInput.type = visible ? "password" : "text";
+  passwordToggle.setAttribute("aria-label", visible ? "نمایش رمز عبور" : "مخفی کردن رمز عبور");
+  passwordToggle.setAttribute("title", visible ? "نمایش رمز عبور" : "مخفی کردن رمز عبور");
+  const icon = passwordToggle.querySelector("i");
+  if (icon) icon.className = visible ? "fas fa-eye" : "fas fa-eye-slash";
+});
 
 async function redirectAuthenticatedUser() {
   const token = localStorage.getItem("access_token");

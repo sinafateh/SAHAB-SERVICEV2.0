@@ -6,7 +6,7 @@
     <title>ثبت پرونده جدید - سیستم مدیریت تعمیرات</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260819-2">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         .step-indicator {
@@ -22,7 +22,7 @@
             left: 0;
             right: 0;
             height: 2px;
-            background: #dee2e6;
+            background: #cfe3f8;
             z-index: 0;
         }
         .step {
@@ -36,7 +36,7 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            background: #dee2e6;
+            background: #cfe3f8;
             color: #6c757d;
             display: flex;
             align-items: center;
@@ -45,7 +45,7 @@
             transition: all 0.3s;
         }
         .step.active .circle {
-            background: #0d6efd;
+            background: #2d7bc8;
             color: white;
         }
         .step.completed .circle {
@@ -76,11 +76,13 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .board-item {
-            border: 1px solid #dee2e6;
-            border-radius: 10px;
+            border: 1px solid #dce9f7;
+            border-radius: 18px;
             padding: 15px;
             margin-bottom: 10px;
-            background: #f8f9fa;
+            background: rgba(247, 251, 255, 0.56);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             position: relative;
         }
         .board-item .remove-board {
@@ -100,7 +102,7 @@
             width: 100px;
             height: 100px;
             object-fit: cover;
-            border-radius: 10px;
+            border-radius: 18px;
             border: 2px solid #dee2e6;
             margin: 5px;
         }
@@ -110,20 +112,22 @@
             gap: 10px;
         }
         .customer-result {
-            border: 1px solid #dee2e6;
-            border-radius: 10px;
+            border: 1px solid #dce9f7;
+            border-radius: 18px;
             padding: 15px;
             margin: 10px 0;
             cursor: pointer;
             transition: all 0.3s;
         }
         .customer-result:hover {
-            background: #f8f9fa;
-            border-color: #0d6efd;
+            background: rgba(247, 251, 255, 0.56);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-color: #2d7bc8;
         }
         .customer-result.selected {
-            background: #e7f1ff;
-            border-color: #0d6efd;
+            background: #e6f1ff;
+            border-color: #2d7bc8;
         }
     </style>
 </head>
@@ -841,6 +845,6 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="/static/js/app.js?v=20260817-1"></script>
     <script src="/static/js/pages/new_order_v2.js"></script>
-    <script src="/static/js/sidebar.js?v=20260818-2"></script>
+    <script src="/static/js/sidebar.js?v=20260819-2"></script>
 </body>
 </html>
