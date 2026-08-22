@@ -12,6 +12,7 @@ from app.models.notification import Notification
 from app.models.workflow_transition import WorkflowTransition
 from app.models.technical_stage_timing import TechnicalStageTiming
 from app.models.case_timeline_event import CaseTimelineEvent
+from app.models.diagnosis import RepairDiagnosisReport, RepairDiagnosisPart, RepairDiagnosisRevision
 
 __all__ = [
     'Base',
@@ -35,4 +36,7 @@ __all__ = [
     'WorkflowTransition',
     'TechnicalStageTiming',
     'CaseTimelineEvent',
+    'RepairDiagnosisReport',
+    'RepairDiagnosisPart',
+    'RepairDiagnosisRevision',
 ]

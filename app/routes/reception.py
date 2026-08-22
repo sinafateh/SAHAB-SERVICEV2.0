@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from app.database import get_db
 from app.models import (
     Customer, Device, RepairOrder, User, StatusHistory, Attachment,
-    Site, SiteType, Panel, Board, BoardType, OrderStatus,
+    Site, SiteType, Panel, Board, BoardType, OrderStatus, PhysicalDamage, Accessory,
     Notification, WorkflowTransition, TechnicalStageTiming, CaseTimelineEvent,
 )
 from app.schemas import (
@@ -46,6 +46,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reception", tags=["پذیرش"])
 templates = Jinja2Templates(directory="frontend/templates")
+
+UPLOAD_STAGES = {"RECEPTION", "REPAIR", "TEST", "DELIVERY"}
+WORKFLOW_UPLOAD_STAGE = {
+    "RECEPTION_INTAKE": "RECEPTION",
+    "TECHNICAL_DIAGNOSIS": "REPAIR",
+    "TECHNICAL_REPAIR": "REPAIR",
+    "TECHNICAL_FINAL_TEST": "TEST",
+    "RECEPTION_DELIVERY": "DELIVERY",
+}
+
+
+def localized_checklist_values(values, enum_type):
+    labels = {item.name: item.value for item in enum_type}
+    result = []
+    for value in values or []:
+        key = getattr(value, "name", value)
+        result.append(labels.get(key, value.value if hasattr(value, "value") else value))
+    return result
 # ============================================
 # مدل‌های Pydantic برای APIهای جدید
 # ============================================
@@ -222,9 +240,9 @@ def format_order_response(order: RepairOrder) -> dict:
         "delivery_method": order.delivery_method.value if hasattr(order.delivery_method, "value") else order.delivery_method,
         "courier_company": order.courier_company,
         "courier_tracking": order.courier_tracking,
-        "physical_damages": order.physical_damages or [],
+        "physical_damages": localized_checklist_values(order.physical_damages, PhysicalDamage),
         "physical_description": order.physical_description,
-        "accessories": order.accessories or [],
+        "accessories": localized_checklist_values(order.accessories, Accessory),
         "accessories_description": order.accessories_description,
         "created_at": order.created_at,
         "customer_name": order.customer.name if order.customer else None,
@@ -1042,13 +1060,24 @@ async def upload_file(
                 detail="پرونده مورد نظر یافت نشد"
             )
         
-        allowed_stages = {"RECEPTION", "REPAIR", "TEST", "DELIVERY", "GENERAL"}
         stage = (stage or "GENERAL").upper()
-        if stage not in allowed_stages:
+        if stage not in UPLOAD_STAGES:
             raise HTTPException(status_code=400, detail="دسته‌بندی مرحله‌ای فایل معتبر نیست.")
         from app.services.workflow_service import WorkflowService
         WorkflowService.ensure_case_editable(order, current_user)
-        if is_delivery_receipt and stage != "DELIVERY":
+        expected_stage = WORKFLOW_UPLOAD_STAGE.get(order.current_stage)
+        if current_user.role not in PRIVILEGED_ROLES:
+            if not expected_stage:
+                raise HTTPException(
+                    status_code=403,
+                    detail="در این مرحله امکان ثبت تصویر مرحله‌ای وجود ندارد.",
+                )
+            if stage != expected_stage:
+                raise HTTPException(
+                    status_code=403,
+                    detail="فقط تصویر مربوط به مرحله فعلی پرونده قابل ثبت است.",
+                )
+        if is_delivery_receipt and (stage != "DELIVERY" or order.current_stage != "RECEPTION_DELIVERY"):
             raise HTTPException(
                 status_code=400,
                 detail="رسید تحویل فقط باید در مرحله تحویل ثبت شود.",
@@ -2036,9 +2065,9 @@ async def get_receipt(
             "reception_date": order.reception_date.strftime("%Y-%m-%d %H:%M") if order.reception_date else "",
             "operator": order.operator_name or "نامشخص",
             "customer_complaint": order.customer_complaint or "",
-            "physical_damages": order.physical_damages if order.physical_damages else [],
+            "physical_damages": localized_checklist_values(order.physical_damages, PhysicalDamage),
             "physical_description": order.physical_description or "",
-            "accessories": order.accessories if order.accessories else [],
+            "accessories": localized_checklist_values(order.accessories, Accessory),
             "accessories_description": order.accessories_description or "",
             "customer": {
                 "name": order.customer.name if order.customer else "",
@@ -2081,10 +2110,27 @@ async def get_receipt(
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        @page {{ size: A5 portrait; margin: 7mm; }}
         @media print {{
             .no-print {{ display: none !important; }}
-            body {{ background: white !important; padding: 20px; }}
-            .receipt-card {{ box-shadow: none !important; border: 1px solid #ddd !important; }}
+            body {{ background: white !important; padding: 0; margin: 0; font-size: 8.5pt; }}
+            .receipt-card {{
+                width: 100%; max-width: none; min-height: 196mm;
+                box-shadow: none !important; border: 0 !important;
+                border-radius: 0; padding: 0;
+            }}
+            .receipt-header {{ padding-bottom: 7px; margin-bottom: 8px; }}
+            .receipt-header h2 {{ font-size: 14pt; margin-bottom: 3px; }}
+            .receipt-header h4 {{ font-size: 10pt; margin-bottom: 3px; }}
+            .tracking-code {{ font-size: 13pt; padding: 2px 10px; margin-top: 4px; }}
+            .info-row {{ padding: 2px 0; }}
+            .info-row .label {{ min-width: 82px; }}
+            .section-title {{ font-size: 10pt; margin-top: 8px; margin-bottom: 4px; padding-bottom: 3px; border-bottom-width: 1px; }}
+            .damage-badge, .accessory-badge {{ padding: 2px 7px; margin: 1px; font-size: 8pt; }}
+            .board-item {{ padding: 4px 7px; margin-bottom: 3px; }}
+            .signature-box {{ padding: 7px; margin-top: 10px; }}
+            .signature-box .sig-line {{ margin: 8px auto 3px; }}
+            .receipt-footer {{ margin-top: 8px !important; font-size: 7pt !important; }}
         }}
         body {{ font-family: 'Tahoma', sans-serif; background: #f8f9fa; padding: 20px; }}
         .receipt-card {{ max-width: 800px; margin: 0 auto; background: white; border-radius: 15px; box-shadow: 0 5px 30px rgba(0,0,0,0.1); padding: 30px; }}
@@ -2123,14 +2169,12 @@ async def get_receipt(
         <h5 class="section-title"><i class="fas fa-user"></i> اطلاعات مشتری</h5>
         <div class="info-row"><span class="label">نام:</span><span class="value">{data['customer']['name'] or 'ثبت نشده'}</span></div>
         <div class="info-row"><span class="label">شماره تماس:</span><span class="value">{data['customer']['phone'] or 'ثبت نشده'}</span></div>
-        <div class="info-row"><span class="label">آدرس:</span><span class="value">{data['customer']['address'] or 'ثبت نشده'}</span></div>
         <div class="info-row"><span class="label">شرکت:</span><span class="value">{data['customer']['company'] or 'ثبت نشده'}</span></div>
 
         <!-- محل نصب -->
         <h5 class="section-title"><i class="fas fa-map-marker-alt"></i> محل نصب</h5>
         <div class="info-row"><span class="label">نام محل:</span><span class="value">{data['site']['name'] or 'ثبت نشده'}</span></div>
         <div class="info-row"><span class="label">نوع:</span><span class="value">{data['site']['type'] or 'ثبت نشده'}</span></div>
-        <div class="info-row"><span class="label">آدرس:</span><span class="value">{data['site']['address'] or 'ثبت نشده'}</span></div>
 
         <!-- پنل -->
         <h5 class="section-title"><i class="fas fa-microchip"></i> اطلاعات پنل</h5>
@@ -2171,7 +2215,7 @@ async def get_receipt(
         </div>
 
         <!-- فوتر -->
-        <div class="text-center mt-4 text-muted" style="font-size: 12px;">
+        <div class="receipt-footer text-center mt-4 text-muted" style="font-size: 12px;">
             <i class="fas fa-fire-extinguisher"></i> سیستم مدیریت تعمیرات تجهیزات اعلام و اطفا حریق
         </div>
     </div>

@@ -23,6 +23,7 @@ from app.schemas.workflow import (
     WorkflowTransferRequest,
     WorkflowTransitionResponse,
     TechnicalTimingRequest,
+    DiagnosisReportRequest,
 )
 from app.services.workflow_service import DEPARTMENTS, STAGES, WorkflowService
 
@@ -110,6 +111,32 @@ def get_order_workflow_state(
         "customer_approval": order.customer_approval,
         "pending_transition": transition_response(pending).model_dump() if pending else None,
     }
+
+
+@router.get("/orders/{repair_order_id}/diagnosis-report")
+def get_diagnosis_report(
+    repair_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    order = WorkflowService.get_order(db, repair_order_id)
+    return WorkflowService.get_diagnosis_report(db, order, current_user)
+
+
+@router.put("/orders/{repair_order_id}/diagnosis-report")
+def save_diagnosis_report(
+    repair_order_id: int,
+    payload: DiagnosisReportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    order = WorkflowService.get_order(db, repair_order_id)
+    return WorkflowService.save_diagnosis_report(
+        db,
+        order,
+        current_user,
+        payload.model_dump(),
+    )
 
 
 @router.post(

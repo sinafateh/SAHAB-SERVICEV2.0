@@ -5,6 +5,15 @@
   const token = () => localStorage.getItem("access_token") || "";
   const privilegedRoles = new Set(["ADMIN", "MANAGEMENT"]);
   const timedStages = new Set(["TECHNICAL_DIAGNOSIS", "TECHNICAL_REPAIR", "TECHNICAL_FINAL_TEST"]);
+  const stageDepartments = {
+    RECEPTION_INTAKE: "RECEPTION",
+    TECHNICAL_DIAGNOSIS: "TECHNICAL",
+    MANAGEMENT_PRICING: "MANAGEMENT",
+    CUSTOMER_APPROVAL: "CUSTOMER_RELATIONS",
+    TECHNICAL_REPAIR: "TECHNICAL",
+    TECHNICAL_FINAL_TEST: "TECHNICAL",
+    RECEPTION_DELIVERY: "RECEPTION",
+  };
   let sessionUser = {};
 
   const stageLabels = {
@@ -31,6 +40,26 @@
     try { return JSON.parse(localStorage.getItem("user") || "{}"); } catch { return {}; }
   })();
   const isPrivileged = () => privilegedRoles.has(currentUser().role);
+  const effectiveDepartment = () => currentUser().department || ({
+    RECEPTION: "RECEPTION",
+    TECHNICAL: "TECHNICAL",
+    MANAGEMENT: "MANAGEMENT",
+    CUSTOMER_RELATIONS: "CUSTOMER_RELATIONS",
+  }[currentUser().role] || null);
+  const canOperateCurrentStage = (order) => {
+    if (isPrivileged()) return true;
+    const department = stageDepartments[order?.current_stage];
+    const assignedToCurrentUser = !order?.current_user_id
+      || Number(order.current_user_id) === Number(currentUser().id);
+    return Boolean(department && effectiveDepartment() === department && assignedToCurrentUser);
+  };
+  const uploadStageForOrder = (order) => ({
+    RECEPTION_INTAKE: "RECEPTION",
+    TECHNICAL_DIAGNOSIS: "REPAIR",
+    TECHNICAL_REPAIR: "REPAIR",
+    TECHNICAL_FINAL_TEST: "TEST",
+    RECEPTION_DELIVERY: "DELIVERY",
+  }[order?.current_stage] || null);
   const isClosed = (order) =>
     order.current_stage === "COMPLETED" ||
     order.current_stage === "CLOSED_NO_REPAIR" ||
@@ -85,12 +114,53 @@
     return `<section class="case-info-section"><h5><i class="fas fa-angle-left"></i> ${escapeHtml(title)}</h5>${body}</section>`;
   }
 
+  function diagnosisStatusLabel(status) {
+    return status === "SUBMITTED" ? "نهایی‌شده" : "پیش‌نویس";
+  }
+
+  function renderDiagnosisSummary(diagnosisData) {
+    const report = diagnosisData?.report;
+    if (!report) {
+      return section(
+        "گزارش حرفه‌ای عیب‌یابی",
+        '<div class="text-muted">گزارش حرفه‌ای عیب‌یابی هنوز ثبت نشده است.</div>',
+      );
+    }
+    const parts = report.parts || [];
+    const partsHtml = parts.length
+      ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0">
+          <thead><tr><th>قطعه</th><th>تعداد</th><th>قیمت واحد</th><th>تلورانس</th><th>منبع</th></tr></thead>
+          <tbody>${parts.map((part) => `<tr>
+            <td>${escapeHtml(part.part_name)}${part.part_number ? `<small class="d-block text-muted">${escapeHtml(part.part_number)}</small>` : ""}</td>
+            <td>${escapeHtml(part.quantity)}</td>
+            <td>${escapeHtml(part.unit_price ?? "-")}</td>
+            <td>${escapeHtml(part.price_tolerance_percent ?? "-")}%</td>
+            <td>${part.price_source_url ? `<a href="${escapeHtml(part.price_source_url)}" target="_blank" rel="noopener">مشاهده منبع</a>` : "-"}</td>
+          </tr>`).join("")}</tbody>
+        </table></div>`
+      : '<div class="text-muted">قطعه‌ای ثبت نشده است.</div>';
+    return section(
+      "گزارش حرفه‌ای عیب‌یابی",
+      `<div class="d-flex flex-wrap gap-2 mb-3">
+        <span class="badge ${report.status === "SUBMITTED" ? "bg-success" : "bg-warning text-dark"}">${diagnosisStatusLabel(report.status)}</span>
+        <span class="badge bg-primary">نسخه ${escapeHtml(report.version)}</span>
+        <span class="badge bg-info text-dark">مدت: ${escapeHtml(report.estimated_duration_hours)} ساعت ± ${escapeHtml(report.duration_tolerance_percent)}%</span>
+        <span class="badge bg-secondary">اطمینان: ${escapeHtml(report.confidence_percent)}%</span>
+      </div>
+      ${detailRow("تکنسین عیب‌یاب", report.technician_name)}
+      ${detailRow("علت اصلی", report.root_cause)}
+      ${detailRow("یافته‌های فنی", report.findings)}
+      ${detailRow("محدوده و مسیر پیشنهادی تعمیر", report.repair_scope)}
+      <div class="mt-3"><strong>قطعات و اقلام موردنیاز</strong>${partsHtml}</div>`,
+    );
+  }
+
   function badges(values, className = "bg-light text-dark") {
     if (!values?.length) return '<span class="text-muted">ثبت نشده</span>';
     return values.map(value => `<span class="badge ${className} me-1 mb-1">${escapeHtml(value)}</span>`).join("");
   }
 
-  function renderCaseDetails(order) {
+  function renderCaseDetails(order, diagnosisData) {
     const customer = order.customer || {};
     const site = order.site || {};
     const panel = order.panel || {};
@@ -157,6 +227,7 @@
       ${section("وضعیت ظاهری", `<div class="mb-2">${badges(order.physical_damages, "bg-danger-subtle text-danger-emphasis")}</div>${detailRow("توضیحات", order.physical_description)}`)}
       ${section("متعلقات", `<div class="mb-2">${badges(order.accessories, "bg-info-subtle text-info-emphasis")}</div>${detailRow("توضیحات", order.accessories_description)}`)}
       ${section("شرح مشکل مشتری", `<div class="case-note">${escapeHtml(order.customer_complaint || "ثبت نشده")}</div>`)}
+      ${renderDiagnosisSummary(diagnosisData)}
       ${section("یادداشت‌ها و تصمیم‌ها", [
         detailRow("یادداشت پرونده", order.notes),
         detailRow("یادداشت عیب‌یابی", order.diagnosis_notes),
@@ -244,7 +315,7 @@
   function renderTimings(items, order) {
     if (!timedStages.has(order.current_stage) && !items?.length) return "";
     const running = items?.find(item => item.stage === order.current_stage && item.status === "RUNNING");
-    const canControl = isPrivileged() || !order.current_user_id || Number(order.current_user_id) === Number(currentUser().id);
+    const canControl = canOperateCurrentStage(order);
     return `<div class="card border-primary mb-3"><div class="card-header bg-primary text-white"><i class="fas fa-stopwatch"></i> زمان‌سنجی مراحل فنی</div>
       <div class="card-body">
         ${timedStages.has(order.current_stage) && canControl ? `<div class="d-flex justify-content-between align-items-center mb-3"><span>مرحله فعال: <strong>${escapeHtml(stageLabels[order.current_stage])}</strong></span>
@@ -308,13 +379,189 @@
     }
   }
 
-  async function renderWorkflow(order) {
+  function renderDiagnosisHistory(revisions) {
+    if (!revisions?.length) {
+      return '<div class="text-muted small">هنوز نسخه قبلی برای این گزارش ثبت نشده است.</div>';
+    }
+    return `<div class="diagnosis-history">${revisions.map((revision) => {
+      const snapshot = revision.snapshot || {};
+      return `<details class="diagnosis-history-item mb-2">
+        <summary class="d-flex justify-content-between gap-2">
+          <span><strong>نسخه ${escapeHtml(revision.version)}</strong> — ${escapeHtml(revision.changed_by_name || "کاربر سامانه")}</span>
+          <small class="text-muted">${date(revision.created_at)}</small>
+        </summary>
+        <div class="small mt-2">
+          <div class="text-muted mb-2">${escapeHtml(revision.change_summary || "بدون توضیح تغییر")}</div>
+          ${snapshot.root_cause ? `<div><strong>علت اصلی:</strong> ${escapeHtml(snapshot.root_cause)}</div>` : ""}
+          ${snapshot.findings ? `<div><strong>یافته‌ها:</strong> ${escapeHtml(snapshot.findings)}</div>` : ""}
+          ${snapshot.estimated_duration_hours ? `<div><strong>برآورد زمان:</strong> ${escapeHtml(snapshot.estimated_duration_hours)} ساعت ± ${escapeHtml(snapshot.duration_tolerance_percent || 0)}%</div>` : ""}
+          <div><strong>تعداد قطعات:</strong> ${escapeHtml((snapshot.parts || []).length)}</div>
+        </div>
+      </details>`;
+    }).join("")}</div>`;
+  }
+
+  function diagnosisPartRow(part = {}, editable = true) {
+    const disabled = editable ? "" : "disabled";
+    return `<div class="diagnosis-part-row row g-2 align-items-end mb-2">
+      <div class="col-md-3"><label class="form-label small">نام قطعه</label><input data-part-field="part_name" class="form-control" value="${escapeHtml(part.part_name || "")}" ${disabled} required></div>
+      <div class="col-md-2"><label class="form-label small">شماره قطعه</label><input data-part-field="part_number" class="form-control" value="${escapeHtml(part.part_number || "")}" ${disabled}></div>
+      <div class="col-md-1"><label class="form-label small">تعداد</label><input data-part-field="quantity" type="number" min="0.01" step="0.01" class="form-control" value="${escapeHtml(part.quantity ?? 1)}" ${disabled} required></div>
+      <div class="col-md-2"><label class="form-label small">قیمت واحد</label><input data-part-field="unit_price" type="number" min="0" step="0.01" class="form-control" value="${escapeHtml(part.unit_price ?? "")}" ${disabled}></div>
+      <div class="col-md-1"><label class="form-label small">تلورانس٪</label><input data-part-field="price_tolerance_percent" type="number" min="0" max="100" step="0.01" class="form-control" value="${escapeHtml(part.price_tolerance_percent ?? "")}" ${disabled}></div>
+      <div class="col-md-2"><label class="form-label small">وضعیت تهیه</label><select data-part-field="availability" class="form-select" ${disabled}>
+        <option value="">تعیین نشده</option>
+        <option value="AVAILABLE" ${part.availability === "AVAILABLE" ? "selected" : ""}>موجود</option>
+        <option value="ORDER_REQUIRED" ${part.availability === "ORDER_REQUIRED" ? "selected" : ""}>نیازمند سفارش</option>
+        <option value="UNKNOWN" ${part.availability === "UNKNOWN" ? "selected" : ""}>نامشخص</option>
+      </select></div>
+      <div class="col-md-1"><button type="button" class="btn btn-outline-danger w-100" data-remove-part ${disabled ? "disabled" : ""}><i class="fas fa-trash"></i></button></div>
+      <div class="col-md-5"><label class="form-label small">لینک منبع قیمت</label><input data-part-field="price_source_url" type="url" class="form-control" value="${escapeHtml(part.price_source_url || "")}" ${disabled}></div>
+      <div class="col-md-7"><label class="form-label small">یادداشت قطعه</label><input data-part-field="notes" class="form-control form-control-sm" placeholder="جایگزین یا وضعیت تهیه" value="${escapeHtml(part.notes || "")}" ${disabled}></div>
+    </div>`;
+  }
+
+  function renderDiagnosisForm(diagnosisData) {
+    const report = diagnosisData?.report || {};
+    const editable = Boolean(diagnosisData?.can_edit);
+    const disabled = editable ? "" : "disabled";
+    const customerComplaint = report.customer_complaint
+      || diagnosisData?.customer_complaint
+      || report.symptom_summary
+      || "ثبت نشده";
+    const parts = report.parts?.length ? report.parts : [{}];
+    return `<div class="diagnosis-workspace">
+      <div class="diagnosis-header d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+        <div>
+          <h5 class="mb-1"><i class="fas fa-stethoscope"></i> گزارش حرفه‌ای عیب‌یابی</h5>
+          <p class="text-muted small mb-0">اطلاعات فنی، برآورد زمان و قطعات موردنیاز را کامل ثبت کنید تا مرحله بعدی بدون دوباره‌کاری انجام شود.</p>
+        </div>
+        <div class="d-flex gap-2">
+          ${report.status ? `<span class="badge ${report.status === "SUBMITTED" ? "bg-success" : "bg-warning text-dark"}">${diagnosisStatusLabel(report.status)}</span>` : '<span class="badge bg-secondary">ثبت نشده</span>'}
+          ${report.version ? `<span class="badge bg-primary">نسخه ${escapeHtml(report.version)}</span>` : ""}
+        </div>
+      </div>
+      <form id="diagnosisReportForm" class="diagnosis-form">
+        <fieldset ${disabled}>
+          <div class="row g-3">
+            <div class="col-12"><label class="form-label">خلاصه علائم و درخواست مشتری</label><textarea class="form-control" rows="3" readonly>${escapeHtml(customerComplaint)}</textarea><div class="form-text">این متن مستقیماً از شرح ثبت‌شده هنگام پذیرش پرونده نمایش داده می‌شود.</div></div>
+            <div class="col-md-6"><label class="form-label">یافته‌های فنی و علائم مشاهده‌شده</label><textarea name="findings" class="form-control" rows="4" required>${escapeHtml(report.findings || "")}</textarea></div>
+            <div class="col-md-6"><label class="form-label">علت اصلی یا ریشه خرابی</label><textarea name="root_cause" class="form-control" rows="4" required>${escapeHtml(report.root_cause || "")}</textarea></div>
+            <div class="col-12"><label class="form-label">محدوده و مسیر پیشنهادی تعمیر</label><textarea name="repair_scope" class="form-control" rows="5" required>${escapeHtml(report.repair_scope || "")}</textarea></div>
+            <div class="col-md-4"><label class="form-label">برآورد زمان تعمیر (ساعت)</label><input name="estimated_duration_hours" type="number" min="0.01" step="0.01" class="form-control" value="${escapeHtml(report.estimated_duration_hours ?? "")}" required></div>
+            <div class="col-md-4"><label class="form-label">تلورانس زمانی (درصد)</label><input name="duration_tolerance_percent" type="number" min="0" max="100" step="0.01" class="form-control" value="${escapeHtml(report.duration_tolerance_percent ?? "")}" required></div>
+            <div class="col-md-4"><label class="form-label">درصد اطمینان برآورد</label><input name="confidence_percent" type="number" min="0" max="100" step="0.01" class="form-control" value="${escapeHtml(report.confidence_percent ?? "")}" required></div>
+          </div>
+          <div class="diagnosis-parts mt-4">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+              <div><h6 class="mb-1">قطعات و اقلام موردنیاز</h6><small class="text-muted">قیمت، تلورانس و منبع قیمت هر قطعه را جدا ثبت کنید.</small></div>
+              ${editable ? '<button type="button" id="addDiagnosisPart" class="btn btn-sm btn-outline-primary"><i class="fas fa-plus"></i> افزودن قطعه</button>' : ""}
+            </div>
+            <div id="diagnosisParts">${parts.map((part) => diagnosisPartRow(part, editable)).join("")}</div>
+          </div>
+        </fieldset>
+        ${editable ? `<div class="d-flex flex-wrap gap-2 mt-4">
+          <button type="submit" class="btn btn-outline-primary" data-diagnosis-save><i class="fas fa-save"></i> ذخیره پیش‌نویس</button>
+          <button type="button" class="btn btn-success" data-diagnosis-submit><i class="fas fa-check-double"></i> ثبت نهایی عیب‌یابی</button>
+        </div>` : '<div class="alert alert-secondary mt-4 mb-0"><i class="fas fa-lock"></i> گزارش عیب‌یابی در این مرحله فقط قابل مشاهده است.</div>'}
+      </form>
+      <div class="diagnosis-history-box mt-4">
+        <h6><i class="fas fa-clock-rotate-left"></i> تاریخچه نسخه‌های گزارش</h6>
+        ${renderDiagnosisHistory(diagnosisData?.revisions)}
+      </div>
+    </div>`;
+  }
+
+  function collectDiagnosisPayload(submit = false) {
+    const form = document.getElementById("diagnosisReportForm");
+    const value = (name) => form.querySelector(`[name="${name}"]`)?.value.trim() || null;
+    const number = (name) => {
+      const raw = form.querySelector(`[name="${name}"]`)?.value;
+      return raw === "" || raw == null ? null : Number(raw);
+    };
+    const parts = [...form.querySelectorAll(".diagnosis-part-row")].map((row) => {
+      const field = (name) => row.querySelector(`[data-part-field="${name}"]`)?.value.trim() || null;
+      const numeric = (name) => {
+        const raw = row.querySelector(`[data-part-field="${name}"]`)?.value;
+        return raw === "" || raw == null ? null : Number(raw);
+      };
+      return {
+        part_name: field("part_name"),
+        part_number: field("part_number"),
+        quantity: numeric("quantity") || 1,
+        unit_price: numeric("unit_price"),
+        price_tolerance_percent: numeric("price_tolerance_percent"),
+        price_source_url: field("price_source_url"),
+        availability: field("availability"),
+        notes: field("notes"),
+      };
+    }).filter((part) => part.part_name);
+    return {
+      findings: value("findings"),
+      root_cause: value("root_cause"),
+      repair_scope: value("repair_scope"),
+      estimated_duration_hours: number("estimated_duration_hours"),
+      duration_tolerance_percent: number("duration_tolerance_percent"),
+      confidence_percent: number("confidence_percent"),
+      parts,
+      submit,
+      change_summary: submit ? "گزارش برای ادامه فرآیند نهایی شد." : "پیش‌نویس گزارش به‌روزرسانی شد.",
+    };
+  }
+
+  async function saveDiagnosisReport(submit = false) {
+    const form = document.getElementById("diagnosisReportForm");
+    if (!form.reportValidity()) return;
+    const payload = collectDiagnosisPayload(submit);
+    await api(`/api/workflow/orders/${orderId}/diagnosis-report`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    if (submit) {
+      await api(`/api/workflow/orders/${orderId}/action`, {
+        method: "POST",
+        body: JSON.stringify({ action: "DIAGNOSIS", notes: payload.findings }),
+      });
+      notify("گزارش عیب‌یابی نهایی و اقدام پرونده ثبت شد.");
+    } else {
+      notify("پیش‌نویس گزارش عیب‌یابی ذخیره شد.");
+    }
+    await loadOrder();
+  }
+
+  function bindDiagnosisForm() {
+    document.getElementById("addDiagnosisPart")?.addEventListener("click", () => {
+      document.getElementById("diagnosisParts")?.insertAdjacentHTML("beforeend", diagnosisPartRow({}, true));
+      bindPartRemoveButtons();
+    });
+    bindPartRemoveButtons();
+    document.getElementById("diagnosisReportForm")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveDiagnosisReport(false).catch((error) => notify(error.message, "error"));
+    });
+    document.querySelector("[data-diagnosis-submit]")?.addEventListener("click", () => {
+      saveDiagnosisReport(true).catch((error) => notify(error.message, "error"));
+    });
+  }
+
+  function bindPartRemoveButtons() {
+    document.querySelectorAll("[data-remove-part]").forEach((button) => {
+      button.onclick = () => {
+        const rows = document.querySelectorAll(".diagnosis-part-row");
+        if (rows.length > 1) button.closest(".diagnosis-part-row")?.remove();
+      };
+    });
+  }
+
+  async function renderWorkflow(order, diagnosisData, timings) {
     const holder = document.getElementById("workflow-area");
     if (isClosed(order) && !isPrivileged()) {
       holder.innerHTML = '<div class="alert alert-secondary"><i class="fas fa-lock"></i> این پرونده مختومه است و فقط مدیریت می‌تواند آن را تغییر دهد.</div>';
       return;
     }
     const stages = await api("/api/workflow/stages");
+    const canOperate = canOperateCurrentStage(order);
+    const timingMarkup = renderTimings(timings, order);
     holder.innerHTML = `<div class="small text-muted mb-3">مرحله فعلی: <strong>${escapeHtml(stageLabels[order.current_stage] || order.current_stage || "-")}</strong></div>
       <div id="workflow-action"></div>
       <form id="transferForm" class="row g-2 align-items-end mt-3">
@@ -323,6 +570,7 @@
         <div class="col-md-4"><button class="btn btn-primary w-100">ارسال درخواست انتقال</button></div>
         <div class="col-12"><textarea id="workflowNote" class="form-control" rows="2" placeholder="یادداشت انتقال (اختیاری)"></textarea></div>
       </form>`;
+    holder.innerHTML = timingMarkup + holder.innerHTML;
 
     const definition = {
       TECHNICAL_DIAGNOSIS: ["DIAGNOSIS", "ثبت نتیجه عیب‌یابی"],
@@ -334,6 +582,10 @@
     }[order.current_stage];
 
     if (definition) {
+      if (definition[0] === "DIAGNOSIS") {
+        document.getElementById("workflow-action").innerHTML = renderDiagnosisForm(diagnosisData);
+        bindDiagnosisForm();
+      } else {
       document.getElementById("workflow-action").innerHTML = `<form id="actionForm" class="border rounded p-3 bg-light">
         <h6>${definition[1]}</h6>
         ${definition[0] === "PRICING" ? '<input id="quotedPrice" type="number" min="0" step="0.01" class="form-control mb-2" placeholder="مبلغ پیشنهادی">' : ""}
@@ -362,9 +614,21 @@
       document.querySelectorAll("[data-approved]").forEach(button =>
         button.addEventListener("click", () => submit(button.dataset.approved === "true").catch(error => notify(error.message, "error")))
       );
+      }
     }
 
-    document.getElementById("workflowStage").addEventListener("change", async (event) => {
+    if (!canOperate) {
+      document.getElementById("actionForm")?.classList.add("d-none");
+      document.getElementById("transferForm")?.classList.add("d-none");
+      document.getElementById("workflow-action")?.insertAdjacentHTML(
+        "beforeend",
+        '<div class="alert alert-secondary mt-3 mb-0"><i class="fas fa-lock"></i> ط§ط®طھغŒط§ط± ط§ظ†ط¬ط§ظ… ط§ظ‚ط¯ط§ظ… غŒط§ ط§ظ†طھظ‚ط§ظ„ ط¯ط± ط§غŒظ† ظ…ط±ط­ظ„ظ‡ ط¨ط±ط§غŒ ط´ظ…ط§ ظپط¹ط§ظ„ ظ†غŒط³طھ.</div>',
+      );
+      const permissionAlert = document.querySelector("#workflow-action .alert-secondary.mt-3");
+      if (permissionAlert) permissionAlert.innerHTML = '<i class="fas fa-lock"></i> اختیار انجام اقدام یا انتقال در این مرحله برای شما فعال نیست.';
+    }
+
+    document.getElementById("workflowStage")?.addEventListener("change", async (event) => {
       const stage = event.target.value;
       const department = event.target.selectedOptions[0]?.dataset.department;
       const recipient = document.getElementById("workflowRecipient");
@@ -391,7 +655,7 @@
       }
     });
 
-    document.getElementById("transferForm").addEventListener("submit", async (event) => {
+    document.getElementById("transferForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const stage = document.getElementById("workflowStage").value;
       try {
@@ -412,7 +676,7 @@
     });
   }
 
-  function renderOrder(order, attachments, timings, timeline) {
+  function renderOrder(order, attachments, timings, timeline, diagnosisData) {
     const closed = isClosed(order);
     document.getElementById("order-detail").innerHTML = `<div class="card shadow-sm border-0">
       <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -427,12 +691,12 @@
           <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#caseTimelineTab" type="button">تایم‌لاین تصویری</button></li>
         </ul>
         <div class="tab-content">
-          <div class="tab-pane fade show active" id="caseDetailsTab">${renderCaseDetails(order)}${renderTimings(timings, order)}</div>
+          <div class="tab-pane fade show active" id="caseDetailsTab">${renderCaseDetails(order, diagnosisData)}</div>
           <div class="tab-pane fade" id="caseFilesTab">
             <div class="card border-0 bg-light mb-4"><div class="card-body">
               <h6><i class="fas fa-upload"></i> افزودن عکس یا فایل مرحله‌ای</h6>
               ${closed && !isPrivileged() ? '<div class="alert alert-secondary mb-0">پرونده مختومه است؛ فقط مدیریت می‌تواند فایل اضافه کند.</div>' : `<div class="row g-2 align-items-end">
-                <div class="col-md-3"><label class="form-label">مرحله</label><select id="fileStage" class="form-select"><option value="RECEPTION">پذیرش</option><option value="REPAIR">تعمیر</option><option value="TEST">تست</option><option value="DELIVERY">تحویل</option><option value="GENERAL">عمومی</option></select></div>
+                <div class="col-md-3"><label class="form-label">مرحله</label><select id="fileStage" class="form-select"><option value="RECEPTION">پذیرش</option><option value="REPAIR">تعمیر</option><option value="TEST">تست</option><option value="DELIVERY">تحویل</option></select></div>
                 <div class="col-md-3"><label class="form-label">فایل</label><input id="stageFile" type="file" class="form-control"></div>
                 <div class="col-md-4"><label class="form-label">توضیح</label><input id="fileDescription" class="form-control" placeholder="توضیح فایل"></div>
                 <div class="col-md-2"><button id="uploadStageFile" class="btn btn-success w-100">آپلود</button></div>
@@ -459,14 +723,39 @@
     });
     document.getElementById("uploadStageFile")?.addEventListener("click", () => uploadStageFile().catch(error => notify(error.message, "error")));
     document.getElementById("fileStage")?.addEventListener("change", (event) => {
-      if (event.target.value !== "DELIVERY") document.getElementById("isDeliveryReceipt").checked = false;
+      const receiptToggle = document.getElementById("isDeliveryReceipt");
+      const receiptWrapper = receiptToggle?.closest(".form-check");
+      const isDelivery = event.target.value === "DELIVERY";
+      if (receiptWrapper) receiptWrapper.classList.toggle("d-none", !isDelivery);
+      if (!isDelivery && receiptToggle) receiptToggle.checked = false;
     });
     document.querySelectorAll("[data-delete-attachment]").forEach(button =>
       button.addEventListener("click", () => deleteAttachment(Number(button.dataset.deleteAttachment)))
     );
     document.getElementById("deleteOrderBtn")?.addEventListener("click", () => deleteOrder(order));
     const fileStage = document.getElementById("fileStage");
-    if (fileStage) fileStage.value = order.current_stage.includes("REPAIR") ? "REPAIR" : order.current_stage.includes("TEST") ? "TEST" : order.current_stage.includes("DELIVERY") ? "DELIVERY" : "RECEPTION";
+    const allowedUploadStage = uploadStageForOrder(order);
+    const receiptToggle = document.getElementById("isDeliveryReceipt");
+    const receiptWrapper = receiptToggle?.closest(".form-check");
+    if (fileStage) {
+      if (!isPrivileged() && allowedUploadStage) {
+        fileStage.innerHTML = `<option value="${allowedUploadStage}">${stageLabels[allowedUploadStage]}</option>`;
+        fileStage.value = allowedUploadStage;
+        fileStage.disabled = true;
+      } else if (allowedUploadStage) {
+        fileStage.value = allowedUploadStage;
+      }
+      const uploadRow = fileStage.closest(".row");
+      if (!isPrivileged() && !allowedUploadStage) {
+        uploadRow?.classList.add("d-none");
+        uploadRow?.insertAdjacentHTML(
+          "afterend",
+          '<div class="alert alert-secondary mb-0">در مرحله فعلی امکان ثبت تصویر مرحله‌ای وجود ندارد.</div>',
+        );
+      }
+    }
+    const isDeliveryStage = fileStage?.value === "DELIVERY";
+    receiptWrapper?.classList.toggle("d-none", !isDeliveryStage);
   }
 
   async function deleteOrder(order) {
@@ -501,14 +790,15 @@
     if (!token()) return (location.href = "/login");
     try {
       await loadSessionUser();
-      const [order, attachments, timings, timeline] = await Promise.all([
+      const [order, attachments, timings, timeline, diagnosisData] = await Promise.all([
         api(`/reception/repair-orders/${orderId}`),
         api(`/reception/repair-orders/${orderId}/attachments`),
         api(`/api/workflow/orders/${orderId}/timings`),
         api(`/api/workflow/orders/${orderId}/timeline`),
+        api(`/api/workflow/orders/${orderId}/diagnosis-report`),
       ]);
-      renderOrder(order, attachments, timings, timeline);
-      await renderWorkflow(order);
+      renderOrder(order, attachments, timings, timeline, diagnosisData);
+      await renderWorkflow(order, diagnosisData, timings);
     } catch (error) {
       document.getElementById("order-detail").innerHTML = `<div class="alert alert-danger">${escapeHtml(error.message)}</div>`;
     }

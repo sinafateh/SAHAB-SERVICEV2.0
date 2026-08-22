@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.auth import PRIVILEGED_ROLES
 from app.models.attachment import Attachment
+from app.models.diagnosis import RepairDiagnosisPart, RepairDiagnosisReport, RepairDiagnosisRevision
 from app.models.notification import Notification
 from app.models.case_timeline_event import CaseTimelineEvent
 from app.models.repair_order import OrderStatus, RepairOrder
@@ -93,6 +94,238 @@ class WorkflowService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="پرونده مختومه است و فقط مدیریت می‌تواند آن را تغییر دهد.",
             )
+
+    @staticmethod
+    def ensure_diagnosis_edit_access(order: RepairOrder, current_user: User) -> None:
+        WorkflowService.ensure_case_editable(order, current_user)
+        if current_user.role in PRIVILEGED_ROLES:
+            return
+        if WorkflowService.effective_department(current_user) != "TECHNICAL":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="گزارش عیب‌یابی فقط برای کاربران بخش فنی قابل ثبت است.",
+            )
+        if order.current_stage != "TECHNICAL_DIAGNOSIS":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="گزارش عیب‌یابی فقط در مرحله عیب‌یابی قابل تکمیل است.",
+            )
+        if order.current_user_id and order.current_user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="این پرونده در اختیار تکنسین دیگری است.",
+            )
+
+    @staticmethod
+    def _diagnosis_snapshot(report: RepairDiagnosisReport) -> dict[str, Any]:
+        def value(item: Any) -> Any:
+            if isinstance(item, Decimal):
+                return str(item)
+            if isinstance(item, datetime):
+                return item.isoformat()
+            return item
+
+        fields = (
+            "status",
+            "version",
+            "symptom_summary",
+            "findings",
+            "root_cause",
+            "repair_scope",
+            "estimated_duration_hours",
+            "duration_tolerance_percent",
+            "confidence_percent",
+            "submitted_at",
+        )
+        snapshot = {
+            field: value(getattr(report, field))
+            for field in fields
+        }
+        snapshot["parts"] = [
+            {
+                "part_name": part.part_name,
+                "part_number": part.part_number,
+                "quantity": value(part.quantity),
+                "unit_price": value(part.unit_price),
+                "price_tolerance_percent": value(part.price_tolerance_percent),
+                "price_source_url": part.price_source_url,
+                "availability": part.availability,
+                "notes": part.notes,
+            }
+            for part in report.parts
+        ]
+        return snapshot
+
+    @staticmethod
+    def diagnosis_report_response(
+        report: Optional[RepairDiagnosisReport],
+        order: RepairOrder,
+        current_user: User,
+    ) -> dict[str, Any]:
+        can_edit = False
+        if report is not None:
+            can_edit = current_user.role in PRIVILEGED_ROLES or (
+                WorkflowService.effective_department(current_user) == "TECHNICAL"
+                and order.current_stage == "TECHNICAL_DIAGNOSIS"
+                and (not order.current_user_id or order.current_user_id == current_user.id)
+            )
+        revisions = []
+        if report:
+            revisions = [
+                {
+                    "id": item.id,
+                    "version": item.version,
+                    "changed_by_user_id": item.changed_by_user_id,
+                    "changed_by_name": item.changed_by.full_name if item.changed_by else None,
+                    "change_summary": item.change_summary,
+                    "created_at": item.created_at,
+                    "snapshot": item.snapshot,
+                }
+                for item in report.revisions
+            ]
+        if not report:
+            return {
+                "report": None,
+                "revisions": [],
+                "can_edit": current_user.role in PRIVILEGED_ROLES or (
+                    WorkflowService.effective_department(current_user) == "TECHNICAL"
+                    and order.current_stage == "TECHNICAL_DIAGNOSIS"
+                    and (not order.current_user_id or order.current_user_id == current_user.id)
+                ),
+                "current_stage": order.current_stage,
+                "customer_complaint": order.customer_complaint,
+            }
+        return {
+            "report": {
+                "id": report.id,
+                "repair_order_id": report.repair_order_id,
+                "technician_id": report.technician_id,
+                "technician_name": report.technician.full_name if report.technician else None,
+                "customer_complaint": order.customer_complaint,
+                "status": report.status,
+                "version": report.version,
+                "symptom_summary": report.symptom_summary,
+                "findings": report.findings,
+                "root_cause": report.root_cause,
+                "repair_scope": report.repair_scope,
+                "estimated_duration_hours": report.estimated_duration_hours,
+                "duration_tolerance_percent": report.duration_tolerance_percent,
+                "confidence_percent": report.confidence_percent,
+                "submitted_at": report.submitted_at,
+                "created_at": report.created_at,
+                "updated_at": report.updated_at,
+                "parts": [
+                    {
+                        "id": part.id,
+                        "part_name": part.part_name,
+                        "part_number": part.part_number,
+                        "quantity": part.quantity,
+                        "unit_price": part.unit_price,
+                        "price_tolerance_percent": part.price_tolerance_percent,
+                        "price_source_url": part.price_source_url,
+                        "availability": part.availability,
+                        "notes": part.notes,
+                    }
+                    for part in report.parts
+                ],
+            },
+            "revisions": revisions,
+            "can_edit": can_edit,
+            "current_stage": order.current_stage,
+        }
+
+    @staticmethod
+    def get_diagnosis_report(
+        db: Session,
+        order: RepairOrder,
+        current_user: User,
+    ) -> dict[str, Any]:
+        report = (
+            db.query(RepairDiagnosisReport)
+            .options(
+                joinedload(RepairDiagnosisReport.technician),
+                selectinload(RepairDiagnosisReport.parts),
+                selectinload(RepairDiagnosisReport.revisions).joinedload(
+                    RepairDiagnosisRevision.changed_by
+                ),
+            )
+            .filter(RepairDiagnosisReport.repair_order_id == order.id)
+            .first()
+        )
+        return WorkflowService.diagnosis_report_response(report, order, current_user)
+
+    @staticmethod
+    def save_diagnosis_report(
+        db: Session,
+        order: RepairOrder,
+        current_user: User,
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
+        WorkflowService.ensure_diagnosis_edit_access(order, current_user)
+        report = (
+            db.query(RepairDiagnosisReport)
+            .options(selectinload(RepairDiagnosisReport.parts))
+            .filter(RepairDiagnosisReport.repair_order_id == order.id)
+            .first()
+        )
+        if report is None:
+            report = RepairDiagnosisReport(
+                repair_order_id=order.id,
+                technician_id=order.current_user_id or current_user.id,
+                version=0,
+            )
+            db.add(report)
+            db.flush()
+
+        report.version = int(report.version or 0) + 1
+        report.status = "SUBMITTED" if data.get("submit") else "DRAFT"
+        report.technician_id = report.technician_id or order.current_user_id or current_user.id
+        for field in (
+            "findings",
+            "root_cause",
+            "repair_scope",
+            "estimated_duration_hours",
+            "duration_tolerance_percent",
+            "confidence_percent",
+        ):
+            setattr(report, field, data.get(field))
+        report.symptom_summary = order.customer_complaint or report.symptom_summary
+        report.submitted_at = utc_now() if data.get("submit") else None
+
+        report.parts.clear()
+        for item in data.get("parts") or []:
+            part_data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            report.parts.append(RepairDiagnosisPart(**part_data))
+
+        db.flush()
+        snapshot = WorkflowService._diagnosis_snapshot(report)
+        revision = RepairDiagnosisRevision(
+            report_id=report.id,
+            version=report.version,
+            changed_by_user_id=current_user.id,
+            change_summary=data.get("change_summary") or (
+                "گزارش عیب‌یابی برای ادامه فرآیند ثبت شد."
+                if data.get("submit")
+                else "پیش‌نویس گزارش عیب‌یابی ذخیره شد."
+            ),
+            snapshot=snapshot,
+        )
+        db.add(revision)
+        if data.get("submit"):
+            order.diagnosis_notes = report.findings
+        WorkflowService.add_timeline_event(
+            db,
+            order,
+            current_user,
+            "DIAGNOSIS_REPORT_SUBMITTED" if data.get("submit") else "DIAGNOSIS_REPORT_SAVED",
+            "ثبت گزارش حرفه‌ای عیب‌یابی",
+            revision.change_summary,
+            "TECHNICAL_DIAGNOSIS",
+            {"report_id": report.id, "version": report.version, "status": report.status},
+        )
+        db.commit()
+        db.refresh(order)
+        return WorkflowService.get_diagnosis_report(db, order, current_user)
 
     @staticmethod
     def effective_department(user: User) -> Optional[str]:
@@ -497,7 +730,26 @@ class WorkflowService:
         if action == "DIAGNOSIS":
             if department != "TECHNICAL":
                 raise HTTPException(status_code=403, detail="ثبت عیب‌یابی فقط برای بخش فنی است")
-            order.diagnosis_notes = notes
+            report = (
+                db.query(RepairDiagnosisReport)
+                .filter(RepairDiagnosisReport.repair_order_id == order.id)
+                .first()
+            )
+            if not report or report.status != "SUBMITTED":
+                raise HTTPException(
+                    status_code=400,
+                    detail="ابتدا گزارش حرفه‌ای عیب‌یابی را تکمیل و نهایی کنید.",
+                )
+            if (
+                current_user.role not in PRIVILEGED_ROLES
+                and report.technician_id
+                and report.technician_id != current_user.id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="ثبت نهایی گزارش فقط توسط تکنسین عیب‌یاب انجام می‌شود.",
+                )
+            order.diagnosis_notes = notes or report.findings
             order.diagnosis_date = now
             order.diagnosed_by_user_id = current_user.id
         elif action == "PRICING":
